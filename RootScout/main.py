@@ -136,6 +136,32 @@ def create_app() -> FastAPI:
         otel_sink = OTelPrintSink()
         graph_builder = None
 
+    # Slack integration
+    from RootScout.slack_connector import (
+        slack_config_from_env,
+        SlackNotifier,
+        SlackAlertSink,
+        SlackCommandHandler,
+    )
+
+    slack_cfg = slack_config_from_env()
+    if slack_cfg:
+        print(
+            f"[config] Slack integration enabled "
+            f"(alert_channel={slack_cfg.alert_channel})"
+        )
+        slack_notifier = SlackNotifier(slack_cfg)
+        # wrap the otel_sink so ERROR signals also fire Slack alerts
+        otel_sink = SlackAlertSink(notifier=slack_notifier, inner_sink=otel_sink)
+        slack_command_handler = SlackCommandHandler(
+            config=slack_cfg,
+            graph_builder=graph_builder,
+        )
+    else:
+        print("[config] SLACK_BOT_TOKEN not set; Slack integration disabled")
+        slack_notifier = None
+        slack_command_handler = None
+    
     otel_ingester = OTelIngester(sink=otel_sink)
 
     app = FastAPI(title="RootScout Ingestion Service", version="0.2.0")
@@ -276,6 +302,62 @@ def create_app() -> FastAPI:
             media_type=ct,
             headers={"X-RootScout-Count": str(result.count)},
         )
+
+    # -------------------------
+    # Slack endpoints
+    # -------------------------
+
+    @app.post("/slack/commands")
+    async def slack_commands(request: Request, background_tasks: BackgroundTasks):
+        """
+        Receives Slack slash-command payloads.
+
+        Supported commands: /rca <service_name> - runs RCA for the named service 
+        and posts the report to the configured Slack channel.
+
+        Returns 503 if Slack is not configured.
+        """
+        if not app.state.slack_command_handler:
+            raise HTTPException(
+                status_code=503,
+                detail="Slack integration not configured. Set SLACK_BOT_TOKEN.",
+            )
+        return await app.state.slack_command_handler.handle(request, background_tasks)
+
+    @app.post("/slack/rca/{service_name}")
+    async def slack_rca_trigger(
+        service_name: str, background_tasks: BackgroundTasks
+    ):
+        """
+        HTTP trigger to run RCA for a service and post the report to Slack.
+        """
+        if not app.state.slack_notifier:
+            raise HTTPException(
+                status_code=503,
+                detail="Slack integration not configured. Set SLACK_BOT_TOKEN.",
+            )
+        if not app.state.graph_builder:
+            raise HTTPException(
+                status_code=503,
+                detail="Graph builder not enabled. Set ENABLE_GRAPH_BUILDER=true.",
+            )
+
+        async def _run():
+            from graph.context_retriever import ContextRetriever
+            from graph.agent import RCAAgent
+
+            context_packet = ContextRetriever(app.state.graph_builder).get_context(
+                service_name
+            )
+            report = RCAAgent().analyze(context_packet)
+            app.state.slack_notifier.post_rca_report(service_name, report)
+
+        background_tasks.add_task(_run)
+        return {
+            "accepted": True,
+            "service": service_name,
+            "message": "RCA queued. Report will be posted to Slack.",
+        }
 
     return app
 
