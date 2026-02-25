@@ -149,17 +149,16 @@ def run_bank_scenario(
         agent_output = agent.analyze(context)
         result["agent_output"] = agent_output
 
-        predicted = agent_output.get("root_cause_service", "")
-        if verbose:
-            print(f"  Predicted  : {predicted}")
+        predicted_component = agent_output.get("root_cause_service", "")
+        predicted_dt = agent_output.get("root_cause_datetime", "")
+        predicted_reason = agent_output.get("reasoning", "")
 
         # 5. Format prediction in OpenRCA JSON format
-        #    fault_start_ts used for datetime field (see module docstring note)
         prediction_str = format_prediction(agent_output, scenario)
         result["prediction"] = prediction_str
 
         # 6. Score against ground truth
-        passing, failing, score = openrca_evaluate(
+        passing, failing, score, details = openrca_evaluate(
             prediction_str, scenario["scoring_points"]
         )
         result["score"]   = score
@@ -167,6 +166,9 @@ def run_bank_scenario(
         result["failing"] = failing
 
         if verbose:
+            from eval.evaluate import _SIM_THRESHOLD
+            from eval.benchmark import _log_criterion_details
+            _log_criterion_details(details, predicted_component, predicted_dt, _SIM_THRESHOLD, predicted_reason)
             verdict = (
                 "PASS"
                 if score == 1.0
@@ -175,8 +177,6 @@ def run_bank_scenario(
                 else "FAIL"
             )
             print(f"  Score      : {score:.2f} [{verdict}]")
-            if failing:
-                print(f"  Missing    : {failing}")
 
     except Exception:
         result["error"] = traceback.format_exc()
@@ -199,7 +199,7 @@ def run_bank_benchmark(
     """Run all scenarios sequentially and return result dicts."""
     if llm_client is None:
         try:
-            llm_client = GeminiClient()
+            llm_client = get_client("gemini")
             if verbose:
                 print("[bank_eval] Using GeminiClient")
         except Exception as e:

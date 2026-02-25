@@ -1,0 +1,3 @@
+instruction,task_index,scoring_points
+"During the specified time range of March 9, 2021, from 18:00 to 18:30, a failure was detected within the system. The exact time of the root cause occurrence is unknown, which complicates the diagnosis process. Please pinpoint the root cause occurrence datetime.",task_1,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-09 18:08:00
+"

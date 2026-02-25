@@ -64,9 +64,22 @@ class GeminiClient(LLMClient):
                 model=self.model_id,
                 contents=prompt,
             )
-            return response.text
+            text = response.text
+            if not text:
+                raise ValueError(
+                    f"Model {self.model_id} returned empty response. "
+                    "If this is a thinking model (2.5-pro), it may require a paid quota tier."
+                )
+            return text
         except Exception as e:
-            return f"Error: {e}"
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                raise RuntimeError(
+                    f"Gemini quota exhausted for {self.model_id}. "
+                    "This model may not have a free tier. "
+                    f"Original error: {e}"
+                ) from e
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +107,7 @@ class ClaudeClient(LLMClient):
             print(f"[LLM] Sending request to {self.model_id} (Claude)...")
             message = self.client.messages.create(
                 model=self.model_id,
-                max_tokens=1024,
+                max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
                 timeout=timeout,
             )

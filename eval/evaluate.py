@@ -33,36 +33,31 @@ def _get_encoder():
     return _encoder
 
 
-def _semantic_match(pred: str, ref: str) -> bool:
+def semantic_sim_score(pred: str, ref: str) -> float:
     """
-    Return True if pred and ref are semantically similar.
+    Return the raw cosine similarity score between pred and ref (0.0–1.0).
 
-    When pred is a long paragraph (LLM reasoning), we split it into sentences
-    and check whether ANY sentence is similar to the short ref phrase.
-    This avoids penalising verbose LLM output — the signal is in at least
-    one sentence, not the mean of all sentences.
+    Uses the same sentence-splitting strategy as _semantic_match: the score
+    is the maximum similarity across all sentences in pred vs the ref phrase.
+    Returns 1.0 for exact/substring matches, 0.0 if either string is empty
+    or sentence-transformers is unavailable and there is no substring match.
     """
     if not pred or not ref:
-        return False
+        return 0.0
 
     pred_clean = pred.strip()
     ref_clean = ref.strip().lower()
 
-    # Exact or substring match always wins first
     if pred_clean.lower() == ref_clean:
-        return True
+        return 1.0
     if ref_clean in pred_clean.lower():
-        return True
+        return 1.0
 
     encoder = _get_encoder()
     if encoder is None:
-        # Fall back to substring match if transformers not installed
-        return ref_clean in pred_clean.lower()
+        return 1.0 if ref_clean in pred_clean.lower() else 0.0
 
     import numpy as np
-
-    # Split reasoning into sentences; compare each against the ref phrase
-    # and take the maximum similarity.
     import re as _re
     sentences = [s.strip() for s in _re.split(r'(?<=[.!?])\s+', pred_clean) if s.strip()]
     if not sentences:
@@ -70,8 +65,12 @@ def _semantic_match(pred: str, ref: str) -> bool:
 
     ref_emb = encoder.encode([ref_clean], normalize_embeddings=True)[0]
     sent_embs = encoder.encode(sentences, normalize_embeddings=True)
-    max_sim = float(max(np.dot(sent_embs, ref_emb)))
-    return max_sim >= _SIM_THRESHOLD
+    return float(max(np.dot(sent_embs, ref_emb)))
+
+
+def _semantic_match(pred: str, ref: str) -> bool:
+    """Return True if pred and ref are semantically similar (score ≥ threshold)."""
+    return semantic_sim_score(pred, ref) >= _SIM_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +81,16 @@ def evaluate(prediction: str, scoring_points: str):
     """
     Evaluate a single JSON-like prediction against OpenRCA scoring_points.
 
-    Returns: (passing_criteria, failing_criteria, score)
+    Returns: (passing_criteria, failing_criteria, score, details)
       - passing_criteria: list of matched criteria strings
       - failing_criteria: list of unmatched criteria strings
       - score: float in [0, 1]
+      - details: list of per-criterion dicts, each with keys:
+            type        "component" | "reason" | "time"
+            predicted   the string the model gave
+            expected    the reference string from scoring_points
+            similarity  float cosine sim for reason criteria, None otherwise
+            passed      bool
     """
 
     predict_pattern = (
@@ -122,7 +127,7 @@ def evaluate(prediction: str, scoring_points: str):
     scores_num = len(components) + len(reasons) + len(times)
 
     if scores_num == 0:
-        return [], [], 0.0
+        return [], [], 0.0, []
 
     def _time_within_60s(ref_str: str, pred_str: str) -> bool:
         fmt = "%Y-%m-%d %H:%M:%S"
@@ -136,33 +141,59 @@ def evaluate(prediction: str, scoring_points: str):
     scores_get = 0
     passing_criteria = []
     failing_criteria = []
+    best_details: list = []
 
     if scoringpoints_length == prediction_length:
         best_score = -1
         for perm in itertools.permutations(predict_results):
             current_score = 0
             current_passing = []
+            current_details = []
             for i in range(scoringpoints_length):
                 if len(components) == scoringpoints_length:
-                    # Component: exact match
-                    if perm[i]["root cause component"].strip() == components[i].strip():
+                    matched = perm[i]["root cause component"].strip() == components[i].strip()
+                    current_details.append({
+                        "type": "component",
+                        "predicted": perm[i]["root cause component"],
+                        "expected": components[i],
+                        "similarity": None,
+                        "passed": matched,
+                    })
+                    if matched:
                         current_score += 1
                         current_passing.append(f"component:{components[i]}")
 
                 if len(reasons) == scoringpoints_length:
-                    # Reason: semantic similarity
-                    if _semantic_match(perm[i]["root cause reason"], reasons[i]):
+                    sim = semantic_sim_score(perm[i]["root cause reason"], reasons[i])
+                    matched = sim >= _SIM_THRESHOLD
+                    current_details.append({
+                        "type": "reason",
+                        "predicted": perm[i]["root cause reason"],
+                        "expected": reasons[i],
+                        "similarity": sim,
+                        "passed": matched,
+                    })
+                    if matched:
                         current_score += 1
                         current_passing.append(f"reason:{reasons[i]}")
 
                 if len(times) == scoringpoints_length:
-                    if _time_within_60s(times[i], perm[i]["root cause occurrence datetime"]):
+                    matched = _time_within_60s(times[i], perm[i]["root cause occurrence datetime"])
+                    current_details.append({
+                        "type": "time",
+                        "predicted": perm[i]["root cause occurrence datetime"],
+                        "expected": times[i],
+                        "similarity": None,
+                        "passed": matched,
+                    })
+                    if matched:
                         current_score += 1
                         current_passing.append(f"time:{times[i]}")
 
             if current_score > best_score:
                 best_score = current_score
                 passing_criteria = current_passing
+                best_details = current_details
 
         scores_get = best_score
 
@@ -173,7 +204,7 @@ def evaluate(prediction: str, scoring_points: str):
     )
     failing_criteria = list(set(all_criteria) - set(passing_criteria))
     final_score = scores_get / scores_num
-    return passing_criteria, failing_criteria, round(final_score, 4)
+    return passing_criteria, failing_criteria, round(final_score, 4), best_details
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +227,7 @@ def file_evaluate(prediction_file: str, query_file: str, report_file: str):
         instruction = query_df.loc[idx, "instruction"]
         task_index = query_df.loc[idx, "task_index"]
 
-        passing, failing, score = evaluate(str(prediction), str(scoring_pts))
+        passing, failing, score, _details = evaluate(str(prediction), str(scoring_pts))
         rows.append({
             "query": instruction,
             "answer": prediction,

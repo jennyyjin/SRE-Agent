@@ -34,19 +34,16 @@ class RCAAgent:
 
         prompt = self._construct_prompt(context_packet)
 
-        print("\n" + "=" * 50)
-        print("📝 DEBUG: PROMPT SENT TO LLM")
-        print("=" * 50)
-        print(prompt)
-        print("=" * 50 + "\n")
-
         print("🤖 [Agent] Prompt constructed. Sending to LLM...")
         response_str = self.client.generate_content(prompt)
 
         try:
             cleaned = response_str.replace("```json", "").replace("```", "").strip()
-            return json.loads(cleaned)
+            parsed = json.loads(cleaned)
+            return parsed
         except Exception as e:
+            print(f"[Agent] JSON parse failed: {e}")
+            print(f"[Agent] Raw response tail: ...{response_str[-200:]}")
             return {"raw_response": response_str, "error": f"Failed to parse JSON: {str(e)}"}
 
     def _construct_prompt(self, context: Dict[str, Any]) -> str:
@@ -108,21 +105,24 @@ You are analytical, data-driven, and focused on minimizing Mean Time to Recovery
 
 ### INCIDENT CONTEXT
 An alert has fired on the focus service: **{context.get('focus_service')}**.
-The following dependency graph and recent events have been retrieved:
+The following dependency graph and recent events have been retrieved.
+All timestamps are in UTC+8 (CST).
 
 {context_str}
 
 ### INVESTIGATION TASK
 Analyze the topology and event data to:
 1. Identify the root cause service (where the failure originated).
-2. Determine if a specific change (deployment, PR, config, etc.) is the likely trigger.
-3. Provide a clear reasoning for how the failure propagated.
-4. Suggest a specific remediation command (e.g., git revert, kubectl rollout undo, disable feature flag).
+2. Estimate when the fault first began, based on the earliest anomalous events you can observe.
+3. Determine if a specific change (deployment, PR, config, etc.) is the likely trigger.
+4. Provide a clear reasoning for how the failure propagated.
+5. Suggest a specific remediation command (e.g., git revert, kubectl rollout undo, disable feature flag).
 
 ### RESPONSE FORMAT
 Return ONLY a valid JSON object with the following structure:
 {{
   "root_cause_service": "<service_name>",
+  "root_cause_datetime": "<YYYY-MM-DD HH:MM:SS — earliest timestamp when the fault began, in UTC+8>",
   "confidence": <float between 0.0 and 1.0>,
   "reasoning": "<professional SRE explanation>",
   "recommended_action": "<specific command to fix the issue>"

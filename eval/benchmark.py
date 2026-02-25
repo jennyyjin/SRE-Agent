@@ -19,7 +19,7 @@ import os
 import json
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 
 # Ensure project root is on the path
@@ -39,6 +39,49 @@ from eval.evaluate import evaluate as openrca_evaluate
 
 
 # ---------------------------------------------------------------------------
+# Verbose criterion logging (shared by run_scenario and run_bank_scenario)
+# ---------------------------------------------------------------------------
+
+def _log_criterion_details(details: list, predicted_component: str, predicted_dt: str, sim_threshold: float, predicted_reason: str = "") -> None:
+    """Print a readable breakdown of each scored criterion."""
+    if not details:
+        # No parsed prediction — print raw fields so the user can see what happened
+        if predicted_component:
+            print(f"  Predicted component : {predicted_component}")
+        if predicted_dt:
+            print(f"  Predicted datetime  : {predicted_dt}")
+        if predicted_reason:
+            short = (predicted_reason[:120] + "...") if len(predicted_reason) > 120 else predicted_reason
+            print(f"  Predicted reasoning : \"{short}\"")
+        return
+
+    scored_types = {d["type"] for d in details}
+
+    for d in details:
+        if d["type"] == "component":
+            verdict = "PASS" if d["passed"] else "FAIL"
+            print(f"  Predicted component : {d['predicted']}")
+            print(f"  Expected component  : {d['expected']}  → {verdict}")
+        elif d["type"] == "reason":
+            short_pred = (d["predicted"][:120] + "...") if len(d["predicted"]) > 120 else d["predicted"]
+            sim = d["similarity"]
+            sim_str = f"{sim:.2f}" if sim is not None else "N/A"
+            verdict = "PASS" if d["passed"] else f"FAIL (threshold {sim_threshold:.2f})"
+            print(f"  Predicted reason    : \"{short_pred}\"")
+            print(f"  Expected reason     : \"{d['expected']}\"")
+            print(f"  Cosine similarity   : {sim_str}  → {verdict}")
+        elif d["type"] == "time":
+            verdict = "PASS" if d["passed"] else "FAIL"
+            print(f"  Predicted datetime  : {d['predicted'] or '(none)'}  → {verdict}")
+            print(f"  Expected datetime   : {d['expected']}")
+
+    # Always show reasoning if it wasn't a scored criterion (e.g. task_1, task_3)
+    if "reason" not in scored_types and predicted_reason:
+        short = (predicted_reason[:120] + "...") if len(predicted_reason) > 120 else predicted_reason
+        print(f"  Predicted reasoning : \"{short}\"")
+
+
+# ---------------------------------------------------------------------------
 # Prediction formatting
 # ---------------------------------------------------------------------------
 
@@ -50,12 +93,16 @@ def format_prediction(
     Convert RootScout's agent output to OpenRCA's JSON prediction string.
 
     RootScout returns:
-        {root_cause_service, confidence, reasoning, recommended_action}
+        {root_cause_service, root_cause_datetime, confidence, reasoning, recommended_action}
 
     OpenRCA expects:
         {"root cause occurrence datetime": "...",
          "root cause component": "...",
          "root cause reason": "..."}
+
+    NOTE: The datetime field uses the LLM's own prediction (root_cause_datetime).
+    There is NO ground-truth fallback — if the model does not predict a time, the
+    time criterion will score 0, which is the correct behaviour.
     """
     # Component: use root_cause_service from the LLM (fallback to raw_response parse)
     component = agent_output.get("root_cause_service", "")
@@ -70,9 +117,15 @@ def format_prediction(
     # against the short ground-truth phrase, so verbosity is fine.
     reason = agent_output.get("reasoning", "") or agent_output.get("raw_response", "")
 
-    # Datetime: from scenario's fault start timestamp
-    fault_ts: datetime = scenario["fault_start_ts"]
-    dt_str = fault_ts.strftime("%Y-%m-%d %H:%M:%S")
+    # Datetime: use the LLM's predicted fault start time.
+    # Fall back to the raw response regex parse if the structured field is missing.
+    # Do NOT inject ground-truth time — that would make the time criterion trivially pass.
+    dt_str = agent_output.get("root_cause_datetime", "")
+    if not dt_str:
+        raw = agent_output.get("raw_response", "")
+        import re
+        m = re.search(r'"root_cause_datetime"\s*:\s*"([^"]+)"', raw)
+        dt_str = m.group(1) if m else ""
 
     prediction = json.dumps({
         "root cause occurrence datetime": dt_str,
@@ -195,8 +248,8 @@ def run_scenario(
         result["agent_output"] = agent_output
 
         predicted_component = agent_output.get("root_cause_service", "")
-        if verbose:
-            print(f"  Predicted  : {predicted_component}")
+        predicted_dt = agent_output.get("root_cause_datetime", "")
+        predicted_reason = agent_output.get("reasoning", "")
 
         # 6. Format prediction in OpenRCA JSON format
         prediction_str = format_prediction(agent_output, scenario)
@@ -204,18 +257,16 @@ def run_scenario(
 
         # 7. Evaluate
         scoring_points = scenario["scoring_points"]
-        passing, failing, score = openrca_evaluate(prediction_str, scoring_points)
+        passing, failing, score, details = openrca_evaluate(prediction_str, scoring_points)
         result["score"] = score
         result["passing"] = passing
         result["failing"] = failing
 
         if verbose:
+            from eval.evaluate import _SIM_THRESHOLD
+            _log_criterion_details(details, predicted_component, predicted_dt, _SIM_THRESHOLD, predicted_reason)
             verdict = "PASS" if score == 1.0 else f"PARTIAL ({score:.2f})" if score > 0 else "FAIL"
             print(f"  Score      : {score:.2f} [{verdict}]")
-            if passing:
-                print(f"  Passing    : {passing}")
-            if failing:
-                print(f"  Failing    : {failing}")
 
     except Exception as e:
         result["error"] = traceback.format_exc()
