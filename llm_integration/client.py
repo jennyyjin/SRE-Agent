@@ -107,7 +107,6 @@ class ClaudeClient(LLMClient):
             print(f"[LLM] Sending request to {self.model_id} (Claude)...")
             message = self.client.messages.create(
                 model=self.model_id,
-<<<<<<< HEAD
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}],
                 timeout=timeout,
