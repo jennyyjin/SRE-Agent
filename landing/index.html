@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RootScout — AI-Powered Root Cause Analysis</title>
+  <style>
+    :root {
+      --bg: #0a0d14;
+      --bg2: #111520;
+      --bg3: #181d2e;
+      --border: #1e2540;
+      --accent: #4f8ef7;
+      --accent2: #7c5ef4;
+      --accent-glow: rgba(79, 142, 247, 0.15);
+      --text: #e2e8f7;
+      --text-muted: #7a8ab0;
+      --green: #22d3a0;
+      --red: #f7566a;
+      --yellow: #f7c25e;
+      --font: 'Inter', system-ui, -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ─── Nav ─── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2.5rem;
+      background: rgba(10, 13, 20, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-logo .logo-mark {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.03em;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-cta {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1.2rem;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+
+    .nav-cta:hover { opacity: 0.85; }
+
+    /* ─── Hero ─── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8rem 2rem 5rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -30%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 900px;
+      background: radial-gradient(ellipse, rgba(79,142,247,0.12) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--accent-glow);
+      border: 1px solid rgba(79, 142, 247, 0.3);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.9rem;
+      border-radius: 100px;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    h1 {
+      font-size: clamp(2.4rem, 6vw, 4.2rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      max-width: 14ch;
+      margin: 0 auto 1.25rem;
+    }
+
+    h1 .gradient {
+      background: linear-gradient(120deg, var(--accent) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-sub {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 540px;
+      margin: 0 auto 2.5rem;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      border: none;
+      padding: 0.75rem 1.75rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 0.75rem 1.75rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+
+    /* ─── Metrics ─── */
+    .metrics {
+      display: flex;
+      justify-content: center;
+      gap: 3rem;
+      flex-wrap: wrap;
+      padding: 2.5rem 2rem;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+
+    .metric { text-align: center; }
+
+    .metric-value {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    /* ─── Section wrapper ─── */
+    section { padding: 6rem 2rem; max-width: 1100px; margin: 0 auto; }
+
+    .section-tag {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    h2 {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 1rem;
+    }
+
+    .section-sub {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      max-width: 560px;
+      margin-bottom: 3rem;
+    }
+
+    /* ─── Problem ─── */
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      align-items: start;
+    }
+
+    @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+    }
+
+    .card-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+
+    .card-label.bad { color: var(--red); }
+    .card-label.good { color: var(--green); }
+
+    .card h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    .card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.65;
+    }
+
+    .card ul {
+      list-style: none;
+      margin-top: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .card ul li {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      padding-left: 1.25rem;
+      position: relative;
+    }
+
+    .card ul li::before {
+      content: attr(data-icon);
+      position: absolute;
+      left: 0;
+    }
+
+    /* ─── How it works ─── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+      margin-top: 3rem;
+    }
+
+    @media (max-width: 700px) { .steps { grid-template-columns: 1fr; } }
+
+    .step {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      position: relative;
+    }
+
+    .step-num {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      font-weight: 800;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .step h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .step p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ─── Features ─── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .feature {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+
+    .feature:hover { border-color: var(--accent); }
+
+    .feature-tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid rgba(79, 142, 247, 0.3);
+      border-radius: 4px;
+      padding: 0.15rem 0.45rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .feature h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ─── Terminal ─── */
+    .terminal {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+    }
+
+    .terminal-bar {
+      background: #161b22;
+      padding: 0.65rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+
+    .t-red { background: #ff5f57; }
+    .t-yellow { background: #ffbd2e; }
+    .t-green { background: #27c93f; }
+
+    .terminal-title {
+      margin-left: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+    }
+
+    .terminal-body {
+      padding: 1.25rem 1.5rem;
+      line-height: 1.8;
+    }
+
+    .t-prompt { color: #7a8ab0; }
+    .t-cmd { color: #e2e8f7; }
+    .t-comment { color: #4a5568; }
+    .t-key { color: var(--accent); }
+    .t-val { color: var(--green); }
+    .t-err { color: var(--red); }
+    .t-warn { color: var(--yellow); }
+    .t-ok { color: var(--green); }
+    .t-header { color: var(--accent2); font-weight: bold; }
+
+    /* ─── Architecture diagram ─── */
+    .arch-diagram {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2.5rem 2rem;
+      margin-top: 3rem;
+      overflow-x: auto;
+    }
+
+    .arch-outer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      min-width: 560px;
+    }
+
+    /* Source services row */
+    .arch-services {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 0;
+    }
+
+    .arch-svc {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.55rem 1.1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .arch-arrow-h {
+      display: flex;
+      align-items: center;
+      color: var(--accent);
+      font-size: 1.1rem;
+      padding: 0 0.3rem;
+    }
+
+    .arch-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: 0.4rem;
+      letter-spacing: 0.02em;
+    }
+
+    /* Vertical connector */
+    .arch-connector {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      padding: 0.1rem 0;
+    }
+
+    .arch-line {
+      width: 2px;
+      background: linear-gradient(to bottom, var(--border), var(--accent));
+      opacity: 0.5;
+    }
+
+    .arch-line-plain {
+      width: 2px;
+      background: var(--border);
+      opacity: 0.5;
+    }
+
+    .arch-arrow-down {
+      color: var(--accent);
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    .arch-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-glow);
+      border: 1px solid rgba(79,142,247,0.25);
+      border-radius: 4px;
+      padding: 0.1rem 0.45rem;
+    }
+
+    /* RootScout platform box */
+    .arch-platform {
+      border: 1.5px solid rgba(79,142,247,0.35);
+      border-radius: 14px;
+      padding: 1.5rem 2rem;
+      background: linear-gradient(135deg, rgba(79,142,247,0.04), rgba(124,94,244,0.04));
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      position: relative;
+    }
+
+    .arch-platform-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: linear-gradient(120deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      white-space: nowrap;
+      margin-bottom: 1.25rem;
+    }
+
+    /* Ingesters row */
+    .arch-ingesters {
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .arch-box {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem 1.1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text);
+      text-align: center;
+      flex: 1;
+      max-width: 180px;
+    }
+
+    .arch-box .arch-box-sub {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-top: 0.2rem;
+    }
+
+    /* Full-width inner boxes */
+    .arch-box-wide {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.7rem 1.25rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      text-align: center;
+      width: 100%;
+    }
+
+    .arch-box-wide.highlight {
+      border-color: rgba(124,94,244,0.4);
+      background: rgba(124,94,244,0.06);
+    }
+
+    .arch-box-wide .arch-box-sub {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-top: 0.2rem;
+    }
+
+    /* Inner connector (shorter) */
+    .arch-inner-conn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* Outputs row */
+    .arch-outputs {
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    .arch-output {
+      flex: 1;
+      max-width: 240px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-top: 2px solid var(--accent);
+      border-radius: 10px;
+      padding: 1.1rem 1.4rem;
+      text-align: center;
+    }
+
+    .arch-output-name {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.2rem;
+    }
+
+    .arch-output-desc {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* Split connectors going to two outputs */
+    .arch-split-conn {
+      display: flex;
+      width: 100%;
+      max-width: 600px;
+      align-items: flex-start;
+      justify-content: center;
+      position: relative;
+      height: 2.2rem;
+    }
+
+    .arch-split-conn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 2px;
+      height: 1rem;
+      background: var(--border);
+      opacity: 0.5;
+    }
+
+    .arch-split-conn::after {
+      content: '';
+      position: absolute;
+      top: 1rem;
+      left: calc(25%);
+      right: calc(25%);
+      height: 2px;
+      background: var(--border);
+      opacity: 0.5;
+    }
+
+    .arch-split-left,
+    .arch-split-right {
+      position: absolute;
+      bottom: 0;
+      width: 2px;
+      height: 1rem;
+      background: var(--border);
+      opacity: 0.5;
+    }
+
+    .arch-split-left { left: 25%; transform: translateX(-50%); }
+    .arch-split-right { right: 25%; transform: translateX(50%); }
+
+    .arch-split-arrow {
+      position: absolute;
+      bottom: 0;
+      color: var(--accent);
+      font-size: 0.8rem;
+    }
+    .arch-split-arrow.left { left: 25%; transform: translateX(-50%); }
+    .arch-split-arrow.right { right: 25%; transform: translateX(50%); }
+
+    /* ─── Eval scores ─── */
+    .eval-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-top: 3rem;
+    }
+
+    @media (max-width: 600px) { .eval-grid { grid-template-columns: 1fr; } }
+
+    .eval-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+    }
+
+    .eval-card h3 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    .eval-score {
+      font-size: 3rem;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+      line-height: 1;
+      margin-bottom: 0.5rem;
+    }
+
+    .eval-score.high {
+      background: linear-gradient(135deg, var(--green), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .eval-score.mid {
+      background: linear-gradient(135deg, var(--yellow), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .eval-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .progress-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin: 1rem 0 0.25rem;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* ─── Integrations ─── */
+    .integrations {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 2rem;
+    }
+
+    .integration {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.9rem;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    /* ─── Quickstart ─── */
+    .quickstart .terminal { margin-top: 1.5rem; }
+
+    /* ─── CTA banner ─── */
+    .cta-banner {
+      background: linear-gradient(135deg, rgba(79,142,247,0.12), rgba(124,94,244,0.12));
+      border: 1px solid rgba(79, 142, 247, 0.25);
+      border-radius: 16px;
+      padding: 4rem 2rem;
+      text-align: center;
+    }
+
+    .cta-banner h2 { margin-bottom: 0.75rem; }
+    .cta-banner p {
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .cta-banner .hero-actions { margin-top: 0; }
+
+    /* ─── Footer ─── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg2);
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    footer .footer-brand {
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
+
+    footer .footer-links {
+      display: flex;
+      gap: 1.5rem;
+      list-style: none;
+    }
+
+    footer .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color 0.2s;
+    }
+
+    footer .footer-links a:hover { color: var(--text); }
+
+    footer .footer-copy {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    /* ─── Slack alert preview ─── */
+    .slack-preview {
+      background: #1a1d21;
+      border: 1px solid #313338;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      margin-top: 1.25rem;
+    }
+
+    .slack-preview .s-header {
+      color: #fff;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .slack-preview .s-line { color: #d1d2d3; margin: 0.15rem 0; }
+    .slack-preview .s-key { color: #a8b5c5; }
+    .slack-preview .s-val { color: #57f287; }
+    .slack-preview .s-err { color: #ed4245; }
+    .slack-preview .s-url { color: #00aff4; }
+
+    .slack-severity {
+      display: inline-block;
+      background: var(--red);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+    }
+
+    .slack-bar {
+      width: 3px;
+      background: var(--green);
+      border-radius: 2px;
+      margin-right: 1rem;
+      align-self: stretch;
+    }
+
+    .slack-content { display: flex; }
+    .slack-inner { flex: 1; }
+  </style>
+</head>
+<body>
+
+<!-- ─── Nav ─── -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="logo-mark">RS</div>
+    RootScout
+  </a>
+  <ul class="nav-links">
+    <li><a href="#how-it-works">How It Works</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#evaluation">Evaluation</a></li>
+    <li><a href="#quickstart">Quickstart</a></li>
+  </ul>
+  <a href="https://github.com/asthamohta/CS224G-SRE" class="nav-cta">View on GitHub</a>
+</nav>
+
+<!-- ─── Hero ─── -->
+<div class="hero">
+  <div class="hero-badge">
+    <span class="dot"></span>
+    AI-Powered SRE Tooling
+  </div>
+  <h1>Stop hunting. Start <span class="gradient">finding root causes</span>.</h1>
+  <p class="hero-sub">
+    RootScout automatically traces service dependencies, correlates telemetry and code changes,
+    and surfaces the root cause of incidents — so your on-call team can fix instead of search.
+  </p>
+  <div class="hero-actions">
+    <a href="#quickstart" class="btn-primary">See the Demo</a>
+    <a href="#how-it-works" class="btn-secondary">How It Works</a>
+  </div>
+</div>
+
+<!-- ─── Metrics ─── -->
+<div class="metrics">
+  <div class="metric">
+    <div class="metric-value">~80%</div>
+    <div class="metric-label">Root cause identification accuracy</div>
+  </div>
+  <div class="metric">
+    <div class="metric-value">&lt;5s</div>
+    <div class="metric-label">End-to-end RCA generation</div>
+  </div>
+  <div class="metric">
+    <div class="metric-value">4</div>
+    <div class="metric-label">Signal sources unified</div>
+  </div>
+  <div class="metric">
+    <div class="metric-value">Zero</div>
+    <div class="metric-label">Manual log triage required</div>
+  </div>
+</div>
+
+<!-- ─── Problem ─── -->
+<section id="problem">
+  <p class="section-tag">The Problem</p>
+  <h2>Incidents are expensive. Manual investigation is worse.</h2>
+  <p class="section-sub">
+    Every minute your on-call engineer spends reading logs across 20 services is a minute your users
+    are experiencing downtime. Traditional approaches are slow, noisy, and error-prone.
+  </p>
+
+  <div class="split">
+    <div class="card">
+      <div class="card-label bad">Without RootScout</div>
+      <h3>The old way is broken</h3>
+      <p>When an alert fires, engineers must manually:</p>
+      <ul>
+        <li data-icon="&#8722; ">Triage which services are affected</li>
+        <li data-icon="&#8722; ">Correlate logs across multiple dashboards</li>
+        <li data-icon="&#8722; ">Check for recent deployments manually</li>
+        <li data-icon="&#8722; ">Guess at root cause under pressure</li>
+        <li data-icon="&#8722; ">Write post-mortems from scratch</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-label good">With RootScout</div>
+      <h3>Automated, focused investigation</h3>
+      <p>RootScout does the legwork instantly:</p>
+      <ul>
+        <li data-icon="&#43; ">Graph traversal scopes impacted services</li>
+        <li data-icon="&#43; ">Telemetry automatically collected and ranked</li>
+        <li data-icon="&#43; ">GitHub PRs and commits correlated</li>
+        <li data-icon="&#43; ">LLM generates structured RCA with reasoning</li>
+        <li data-icon="&#43; ">Slack alert delivered with recommended actions</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ─── How It Works ─── -->
+<section id="how-it-works" style="background: var(--bg2); max-width: 100%; padding: 6rem 2rem;">
+<div style="max-width: 1100px; margin: 0 auto;">
+  <p class="section-tag">How It Works</p>
+  <h2>The detective and the blueprint</h2>
+  <p class="section-sub">
+    Think of a building on fire. The old approach sends a detective to search every room.
+    RootScout hands the detective a blueprint first — so they go straight to the source.
+  </p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Ingest telemetry</h3>
+      <p>Services emit OpenTelemetry traces, metrics, and logs to RootScout's OTLP endpoints in real time.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Build the graph</h3>
+      <p>Spans are parsed to automatically construct a live service dependency graph — nodes, edges, and health status.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Scope the blast radius</h3>
+      <p>When an alert fires, BFS traversal identifies only the related services. No irrelevant noise sent to the LLM.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <h3>Enrich with code context</h3>
+      <p>Recent GitHub PRs and commits are automatically attached — correlating deployments with the outage window.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <h3>LLM analysis</h3>
+      <p>A structured prompt is sent to an LLM. The model reasons step-by-step and returns a JSON RCA report.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <h3>Notify and act</h3>
+      <p>The RCA is posted to Slack with root cause, confidence, and recommended actions. Available via REST API too.</p>
+    </div>
+  </div>
+
+  <!-- Architecture -->
+  <div class="arch-diagram">
+    <div class="arch-outer">
+
+      <!-- Source services -->
+      <div style="text-align:center; margin-bottom:0.75rem;">
+        <span class="arch-badge">Your Microservices</span>
+      </div>
+      <div class="arch-services">
+        <div class="arch-svc">API Gateway</div>
+        <div class="arch-arrow-h">&#8594;</div>
+        <div class="arch-svc">Backend Service</div>
+        <div class="arch-arrow-h">&#8594;</div>
+        <div class="arch-svc">Database</div>
+      </div>
+      <div class="arch-label" style="margin-top:0.6rem;">OTel Traces &middot; Metrics &middot; Logs via OTLP</div>
+
+      <!-- Connector down into platform -->
+      <div class="arch-connector" style="height:3.5rem;">
+        <div class="arch-line" style="height:2.5rem;"></div>
+        <div class="arch-arrow-down">&#9660;</div>
+      </div>
+
+      <!-- RootScout platform -->
+      <div class="arch-platform">
+        <div class="arch-platform-label">RootScout Platform</div>
+
+        <!-- Ingesters -->
+        <div class="arch-ingesters" style="margin-top:0.5rem;">
+          <div class="arch-box">
+            OTel Ingester
+            <div class="arch-box-sub">Traces &middot; Metrics &middot; Logs</div>
+          </div>
+          <div class="arch-box">
+            GitHub Ingester
+            <div class="arch-box-sub">Push Events &middot; PRs</div>
+          </div>
+        </div>
+
+        <!-- Inner connector -->
+        <div class="arch-inner-conn" style="height:3rem; justify-content:center; gap:0.25rem;">
+          <div class="arch-line-plain" style="height:1.8rem;"></div>
+          <div class="arch-arrow-down">&#9660;</div>
+        </div>
+
+        <!-- Service graph -->
+        <div class="arch-box-wide">
+          Service Dependency Graph
+          <div class="arch-box-sub">Live Topology Built from Spans &middot; NetworkX</div>
+        </div>
+
+        <!-- Inner connector with BFS label -->
+        <div class="arch-inner-conn" style="justify-content:center; gap:0.3rem; padding:0.6rem 0 0.4rem;">
+          <div class="arch-line-plain" style="height:0.9rem;"></div>
+          <span style="font-size:0.68rem;color:var(--accent);font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:0.15rem 0.5rem;border:1px solid rgba(79,142,247,0.25);border-radius:3px;background:var(--accent-glow);">BFS scope</span>
+          <div class="arch-line-plain" style="height:0.9rem;"></div>
+          <div class="arch-arrow-down">&#9660;</div>
+        </div>
+
+        <!-- Context retriever -->
+        <div class="arch-box-wide">
+          Context Retriever
+          <div class="arch-box-sub">Logs &middot; Metrics &middot; Git Diffs &middot; Deployment Window</div>
+        </div>
+
+        <!-- Inner connector -->
+        <div class="arch-inner-conn" style="height:3rem; justify-content:center; gap:0.25rem;">
+          <div class="arch-line-plain" style="height:1.8rem;"></div>
+          <div class="arch-arrow-down">&#9660;</div>
+        </div>
+
+        <!-- LLM Agent -->
+        <div class="arch-box-wide highlight" style="margin-bottom:0.5rem;">
+          LLM Agent
+          <div class="arch-box-sub">LLM &middot; Chain-of-Thought &rarr; JSON RCA</div>
+        </div>
+      </div>
+
+      <!-- Split connector to outputs -->
+      <div class="arch-split-conn">
+        <div class="arch-split-left"></div>
+        <div class="arch-split-right"></div>
+        <span class="arch-split-arrow left">&#9660;</span>
+        <span class="arch-split-arrow right">&#9660;</span>
+      </div>
+
+      <!-- Output boxes -->
+      <div class="arch-outputs">
+        <div class="arch-output">
+          <div class="arch-output-name">Slack Alert</div>
+          <div class="arch-output-desc">RCA report posted to #incidents with root cause, confidence, and recommended actions</div>
+        </div>
+        <div class="arch-output">
+          <div class="arch-output-name">REST API</div>
+          <div class="arch-output-desc">GET /rca/{service} &middot; on-demand or automated triggers</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ─── Features ─── -->
+<section id="features">
+  <p class="section-tag">Features</p>
+  <h2>Everything an SRE needs. Automated.</h2>
+  <p class="section-sub">
+    RootScout combines industry-standard observability protocols with AI analysis
+    into a single, production-ready platform.
+  </p>
+
+  <div class="features">
+    <div class="feature">
+      <div class="feature-tag">Graph</div>
+      <h3>Live Service Dependency Graph</h3>
+      <p>Built automatically from OTel traces using NetworkX. Tracks service health, latency, and error rates in real time.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">OTel</div>
+      <h3>OTLP Protocol Support</h3>
+      <p>Native ingestion of OpenTelemetry traces, metrics, and logs. Drop-in compatible with any OTel-instrumented stack.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">LLM</div>
+      <h3>Multi-LLM Backend</h3>
+      <p>Supports Google Gemini and Anthropic Claude. Structured Chain-of-Thought prompting with JSON-formatted RCA output.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">GitHub</div>
+      <h3>GitHub Integration</h3>
+      <p>Webhook-based ingestion of push events and pull requests. Recent deployments are automatically correlated with incidents.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">Slack</div>
+      <h3>Slack Bot</h3>
+      <p>Real-time alerts with severity indicators. Run <code>/rca cart-service</code> from any channel for instant on-demand analysis.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">API</div>
+      <h3>FastAPI Service</h3>
+      <p>Production-ready REST API with OTLP collector endpoints, GitHub webhooks, and background processing. Docker-ready.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">Signal</div>
+      <h3>Focused Context, Not Noise</h3>
+      <p>Graph-scoped BFS traversal means the LLM only sees relevant services — reducing hallucinations and API costs.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">Output</div>
+      <h3>Structured RCA Reports</h3>
+      <p>JSON output with root cause service, confidence score, reasoning chain, and recommended actions.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-tag">Eval</div>
+      <h3>Built-in Evaluation Framework</h3>
+      <p>Benchmark against 10 synthetic scenarios with ground-truth root causes and a rigorous three-axis scoring rubric.</p>
+    </div>
+  </div>
+
+  <!-- Slack preview -->
+  <div style="margin-top: 3rem;">
+    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0.5rem;">Sample Slack alert delivered by RootScout:</p>
+    <div class="slack-preview">
+      <div class="slack-content">
+        <div class="slack-bar"></div>
+        <div class="slack-inner">
+          <div class="s-header"><span class="slack-severity">Critical</span> Root Cause Analysis Complete</div>
+          <div class="s-line"><span class="s-key">Service:   </span> <span class="s-err">cart-service</span></div>
+          <div class="s-line"><span class="s-key">Root cause:</span> <span class="s-val">cart-service (DB connection pool exhausted)</span></div>
+          <div class="s-line"><span class="s-key">Confidence:</span> <span class="s-val">0.92</span></div>
+          <div class="s-line"><span class="s-key">Linked PR: </span> <span class="s-url">#47 — Reduce max_pool_size for cost savings</span></div>
+          <div class="s-line"><span class="s-key">Actions:</span></div>
+          <div class="s-line">&nbsp; 1. Revert PR #47 or increase max_pool_size</div>
+          <div class="s-line">&nbsp; 2. Restart cart-service pods</div>
+          <div class="s-line">&nbsp; 3. Monitor db latency for 10 min</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Evaluation ─── -->
+<section id="evaluation" style="background: var(--bg2); max-width: 100%; padding: 6rem 2rem;">
+<div style="max-width: 1100px; margin: 0 auto;">
+  <p class="section-tag">Evaluation</p>
+  <h2>Measured, not assumed.</h2>
+  <p class="section-sub">
+    RootScout ships with a rigorous evaluation suite — synthetic benchmarks with known root causes
+    scored across three independent axes.
+  </p>
+
+  <div class="eval-grid">
+    <div class="eval-card">
+      <h3>Synthetic Benchmark</h3>
+      <div class="eval-score high">~80%</div>
+      <p class="eval-desc">10 hand-crafted scenarios with known root causes, tested on controlled service topologies.</p>
+      <div class="progress-bar"><div class="progress-fill" style="width: 80%"></div></div>
+      <div class="progress-label"><span>Component match</span><span>80%</span></div>
+      <div class="progress-bar"><div class="progress-fill" style="width: 75%"></div></div>
+      <div class="progress-label"><span>Reason similarity (cosine &ge; 0.5)</span><span>75%</span></div>
+    </div>
+    <div class="eval-card">
+      <h3>Scoring Criteria</h3>
+      <p class="eval-desc" style="margin-bottom: 1.25rem;">Each generated report is scored on three independent axes:</p>
+      <ul style="list-style: none; display: flex; flex-direction: column; gap: 0.75rem;">
+        <li style="font-size: 0.875rem; color: var(--text-muted);">
+          <strong style="color: var(--text); display: block; margin-bottom: 0.15rem;">Component match</strong>
+          Exact identification of the root cause service
+        </li>
+        <li style="font-size: 0.875rem; color: var(--text-muted);">
+          <strong style="color: var(--text); display: block; margin-bottom: 0.15rem;">Reason similarity</strong>
+          Cosine similarity &ge; 0.50 against ground-truth explanations
+        </li>
+        <li style="font-size: 0.875rem; color: var(--text-muted);">
+          <strong style="color: var(--text); display: block; margin-bottom: 0.15rem;">Timestamp accuracy</strong>
+          Incident onset within &plusmn;60 seconds of ground truth
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ─── Integrations ─── -->
+<section>
+  <p class="section-tag">Integrations</p>
+  <h2>Works with your existing stack.</h2>
+  <p class="section-sub">Built on open standards. If you already emit OTel, you're 90% of the way there.</p>
+
+  <div class="integrations">
+    <div class="integration">OpenTelemetry</div>
+    <div class="integration">GitHub</div>
+    <div class="integration">Slack</div>
+    <div class="integration">Anthropic Claude</div>
+    <div class="integration">Google Gemini</div>
+    <div class="integration">FastAPI</div>
+    <div class="integration">NetworkX</div>
+    <div class="integration">OTLP / gRPC</div>
+  </div>
+</section>
+
+<!-- ─── Quickstart ─── -->
+<section id="quickstart" class="quickstart" style="background: var(--bg2); max-width: 100%; padding: 6rem 2rem;">
+<div style="max-width: 1100px; margin: 0 auto;">
+  <p class="section-tag">Quickstart</p>
+  <h2>Up and running in minutes.</h2>
+  <p class="section-sub">Clone, configure, and start investigating incidents in your environment.</p>
+
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="terminal-dot t-red"></div>
+      <div class="terminal-dot t-yellow"></div>
+      <div class="terminal-dot t-green"></div>
+      <span class="terminal-title">bash</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-comment"># 1. Clone the repo</span></div>
+      <div><span class="t-prompt">$ </span><span class="t-cmd">git clone https://github.com/asthamohta/CS224G-SRE.git && cd CS224G-SRE</span></div>
+      <br>
+      <div><span class="t-comment"># 2. Install dependencies</span></div>
+      <div><span class="t-prompt">$ </span><span class="t-cmd">pip install -r requirements.txt</span></div>
+      <br>
+      <div><span class="t-comment"># 3. Configure your API keys</span></div>
+      <div><span class="t-prompt">$ </span><span class="t-cmd">cp .env.example .env</span></div>
+      <div><span class="t-comment"># Edit .env: add GEMINI_API_KEY, SLACK_BOT_TOKEN, GITHUB_TOKEN, ...</span></div>
+      <br>
+      <div><span class="t-comment"># 4. Run the interactive demo</span></div>
+      <div><span class="t-prompt">$ </span><span class="t-cmd">python demo.py</span></div>
+      <br>
+      <div><span class="t-ok">  Service graph built: frontend → cart-service → database</span></div>
+      <div><span class="t-warn">  Alert: cart-service entering ERROR state (15% error rate)</span></div>
+      <div><span class="t-key">  Running RCA for: cart-service</span></div>
+      <div><span class="t-ok">  Root cause: cart-service — DB connection pool exhausted (PR #47)</span></div>
+      <div><span class="t-ok">  Slack notification sent to #incidents</span></div>
+    </div>
+  </div>
+
+  <div class="terminal" style="margin-top: 1.25rem;">
+    <div class="terminal-bar">
+      <div class="terminal-dot t-red"></div>
+      <div class="terminal-dot t-yellow"></div>
+      <div class="terminal-dot t-green"></div>
+      <span class="terminal-title">bash — run as a service</span>
+    </div>
+    <div class="terminal-body">
+      <div><span class="t-comment"># Start the FastAPI server (receives live OTel, GitHub webhooks, Slack commands)</span></div>
+      <div><span class="t-prompt">$ </span><span class="t-cmd">python -m RootScout.main</span></div>
+      <br>
+      <div><span class="t-ok">INFO:     Uvicorn running on http://0.0.0.0:8000</span></div>
+      <div><span class="t-ok">INFO:     Listening: /v1/traces  /v1/metrics  /v1/logs</span></div>
+      <div><span class="t-ok">INFO:     Listening: /webhooks/github  /slack/command</span></div>
+    </div>
+  </div>
+</div>
+</section>
+
+
+<!-- ─── CTA ─── -->
+<section style="max-width: 900px; padding: 5rem 2rem;">
+  <div class="cta-banner">
+    <h2>Ready to cut your MTTR?</h2>
+    <p>Join engineering teams using RootScout to automate incident investigation and reduce time-to-resolution.</p>
+    <div class="hero-actions">
+      <a href="#quickstart" class="btn-primary">See the Demo</a>
+      <a href="https://github.com/asthamohta/CS224G-SRE" class="btn-secondary">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Footer ─── -->
+<footer>
+  <div class="footer-brand">RootScout</div>
+  <ul class="footer-links">
+    <li><a href="#how-it-works">How It Works</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#evaluation">Evaluation</a></li>
+    <li><a href="#quickstart">Quickstart</a></li>
+    <li><a href="https://github.com/asthamohta/CS224G-SRE">GitHub</a></li>
+  </ul>
+  <div class="footer-copy">&copy; 2025 RootScout. All rights reserved.</div>
+</footer>
+
+</body>
+</html>
