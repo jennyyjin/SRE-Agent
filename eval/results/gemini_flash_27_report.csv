@@ -1,0 +1,64 @@
+query,answer,groundtruth,passed,failed,score,task_index
+"During the specified time range of March 9, 2021, from 18:00 to 18:30, a failure was detected within the system. The exact time of the root cause occurrence is unknown, which complicates the diagnosis process. Please pinpoint the root cause occurrence datetime.","{""root cause occurrence datetime"": ""2021-03-09 01:38:44"", ""root cause component"": ""Tomcat02"", ""root cause reason"": ""The earliest observable anomalous event is the series of 'GC (Allocation Failure)' entries in Tomcat02's logs, beginning at 2021-03-09 01:38:44. This indicates that the Tomcat application is experiencing severe memory pressure and frequent garbage collections, which is a strong symptom of an application-level issue such as a memory leak or inefficient data processing. This issue is likely present across the entire Tomcat application cluster (Tomcat01-04, MG01-02, IG01-02, all of which are showing '\ud83d\udd34' status).\n\nThis application instability and high activity likely led to a cascading failure:\n1.  **Excessive Resource Consumption:** The problematic application behavior caused increased memory utilization (evidenced by the GC failures) and likely generated an extraordinary volume of temporary files or logs.\n2.  **Filesystem Exhaustion on apache01:** This excessive log/temp file creation rapidly consumed the available space on the `apache01` server's root filesystem. We observe `/tmp_FSAvailableSpace` critically low at 01:41:00 and `/_FSAvailableSpace` becoming critically low (7224) by 02:22:00. A full root filesystem prevents the operating system and services like Apache from functioning correctly, causing `apache01` to fail.\n3.  **High Redis Write Load:** The `redis-Redis_6379_Redis (rdb_changes_since_last_save)` metric on Redis01 shows an unprecedented 1.1 billion changes, reported at 02:38:00. This strongly suggests that the application was performing massive data processing or write operations, overwhelming Redis01 (which is also '\ud83d\udd34').\n\nTherefore, the failure originated within the Tomcat application due to a deployed change causing resource issues, which then propagated to fill the filesystem of the frontend `apache01` server and subsequently impacted other dependent services.""}","The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-09 18:08:00
+",[],['time:2021-03-09 18:08:00'],0.0,task_1
+"There was a single failure within the time range of March 4, 2021, from 07:00 to 07:30. The exact reason for this failure remains unknown. Please determine the root cause reason for this failure.",,"The only predicted root cause reason is high CPU usage
+",[],['reason:high CPU usage'],0.0,task_2
+"On March 10, 2021, between the time range of 04:30 to 05:00, the system experienced one failure. The specific component responsible for this failure is currently unknown. Your task is to identify the root cause component.",,"The only predicted root cause component is Tomcat01
+",[],['component:Tomcat01'],0.0,task_3
+"During the specified time range of March 4, 2021, from 20:00 to 20:30, the system experienced one failure. The exact time of the root cause occurrence and the affected component are currently unknown. You are tasked with identifying the root cause occurrence datetime and the root cause component.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-04 20:14:00
+The only predicted root cause component is Redis02
+",[],"['component:Redis02', 'time:2021-03-04 20:14:00']",0.0,task_5
+"Within the time range of March 7, 2021, from 08:00 to 08:30, there was one reported failure in the system. The exact component responsible for this failure and the underlying reason for it are currently unknown. Your task is to identify the root cause component and the root cause reason.",,"The only predicted root cause component is Tomcat03
+The only predicted root cause reason is high CPU usage
+",[],"['component:Tomcat03', 'reason:high CPU usage']",0.0,task_6
+"During the specified time range of March 9, 2021, from 09:00 to 09:30, the system experienced a failure. The exact time of the root cause occurrence is unknown, complicating the diagnosis process. Please pinpoint the root cause occurrence datetime.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-09 09:18:00
+",[],['time:2021-03-09 09:18:00'],0.0,task_1
+"Within the specified time range of March 12, 2021, from 10:30 to 11:00, there was a single failure within the system. The exact cause of this failure is currently unknown. Please investigate and determine the root cause reason for this failure.",,"The only predicted root cause reason is network packet loss
+",[],['reason:network packet loss'],0.0,task_2
+"During the specified time range of March 23, 2021, from 14:00 to 14:30, there was one identified failure. The component responsible for this failure is currently unknown. Your task is to determine the root cause component that led to this failure.",,"The only predicted root cause component is Tomcat04
+",[],['component:Tomcat04'],0.0,task_3
+"During the time range of March 25, 2021, from 22:00 to 22:30, a single failure occurred within the system. The exact time of the root cause occurrence and the reason behind this failure are currently unknown. You are tasked with identifying the root cause occurrence datetime and the underlying reason for this failure.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-25 22:01:00
+The only predicted root cause reason is network packet loss
+",[],"['time:2021-03-25 22:01:00', 'reason:network packet loss']",0.0,task_4
+"A failure was detected during the time range of March 9, 2021, from 13:00 to 13:30. The specific component that caused this failure and the underlying reason for it are currently unknown. Please identify the root cause component and the root cause reason for this failure.",,"The only predicted root cause component is MG02
+The only predicted root cause reason is network packet loss
+",[],"['reason:network packet loss', 'component:MG02']",0.0,task_6
+"During the specified time range of March 4, 2021, from 19:00 to 19:30, the system experienced one failure. The exact time of the root cause occurrence is currently unknown. Please pinpoint the root cause occurrence datetime.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-04 19:22:00
+",[],['time:2021-03-04 19:22:00'],0.0,task_1
+"Within the specified time range of March 6, 2021, from 23:00 to 23:30, there was one reported failure in the system. The specific component responsible for this failure has not yet been identified. Your task is to determine the root cause component.",,"The only predicted root cause component is Tomcat01
+",[],['component:Tomcat01'],0.0,task_3
+"A single failure occurred within the specified time range of March 24, 2021, from 19:30 to 20:00. The exact time when the root cause occurred and the reason for the failure remain unknown. You are tasked with identifying the root cause occurrence time and the reason behind the failure.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-24 19:50:00
+The only predicted root cause reason is network latency
+",[],"['reason:network latency', 'time:2021-03-24 19:50:00']",0.0,task_4
+"During the specified time range of March 9, 2021, from 11:00 to 11:30, there was one documented failure in the system. Currently, the root cause component and the underlying reason for this failure are unknown and need to be identified.",,"The only predicted root cause component is Tomcat01
+The only predicted root cause reason is network latency
+",[],"['reason:network latency', 'component:Tomcat01']",0.0,task_6
+"During the time range of March 6, 2021, from 04:30 to 05:00, there was a single failure in the system. The exact time when the root cause occurred is currently unknown. Please determine the root cause occurrence datetime to aid in further investigation.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-06 04:56:00
+",[],['time:2021-03-06 04:56:00'],0.0,task_1
+"During the specified time range of March 10, 2021, from 14:00 to 14:30, the system experienced a failure. It is unclear which component is responsible for this failure. Your task is to identify the root cause component.",,"The only predicted root cause component is Tomcat02
+",[],['component:Tomcat02'],0.0,task_3
+"Within the time range of March 24, 2021, from 12:30 to 13:00, a single failure occurred. The exact time of the root cause occurrence and the underlying reason for this failure are currently unknown. Your task is to identify the root cause occurrence datetime and determine the root cause reason.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-24 12:36:00
+The only predicted root cause reason is high disk I/O read usage
+",[],"['reason:high disk I/O read usage', 'time:2021-03-24 12:36:00']",0.0,task_4
+"During the specified time range of March 10, 2021, from 15:30 to 16:00, there was one failure reported within the system. The exact time of the root cause occurrence and the affected component are currently unknown. Please identify the root cause occurrence datetime and the root cause component.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-10 15:43:00
+The only predicted root cause component is apache02
+",[],"['time:2021-03-10 15:43:00', 'component:apache02']",0.0,task_5
+"On March 4, 2021, within the time range of 14:30 to 15:00, a single failure was detected in the system. The exact time when the root cause occurred is unknown. Please identify the specific occurrence time of the root cause.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-04 14:57:00
+",[],['time:2021-03-04 14:57:00'],0.0,task_1
+"Within the time range of March 7, 2021, from 12:30 to 13:00, the system experienced one failure. The root cause reason for this failure is currently unknown. Please identify the underlying reason for this failure.",,"The only predicted root cause reason is high memory usage
+",[],['reason:high memory usage'],0.0,task_2
+"On March 4, 2021, between 02:30 and 03:00, a failure was observed. The underlying reason for this failure remains unknown. Your task is to identify the root cause reason for this failure.",,"The only predicted root cause reason is high memory usage
+",[],['reason:high memory usage'],0.0,task_2
+"During the specified time range of March 9, 2021, from 16:00 to 16:30, the system experienced a single failure. The exact time of the root cause occurrence is currently unknown, which complicates the diagnosis process. Please pinpoint the root cause occurrence datetime.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-09 16:23:00
+",[],['time:2021-03-09 16:23:00'],0.0,task_1
+"During the specified time range of March 4, 2021, from 06:00 to 06:30, the system experienced a failure. The reason for this failure is currently unknown. Please identify the root cause reason for this failure.",,"The only predicted root cause reason is JVM Out of Memory (OOM) Heap
+",[],['reason:JVM Out of Memory (OOM) Heap'],0.0,task_2
+"In the time range of March 9, 2021, from 05:00 to 05:30, a failure was observed. The exact reason for this failure is currently unknown. Please determine the root cause reason for this occurrence.",,"The only predicted root cause reason is high disk space usage
+",[],['reason:high disk space usage'],0.0,task_2
+"There was a single failure in the specified time range of March 9, 2021, from 17:30 to 18:00. The exact time of the root cause occurrence and the reason for the failure are currently unknown. Please determine the root cause occurrence datetime and the underlying reason for this failure.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-09 17:39:00
+The only predicted root cause reason is high disk space usage
+",[],"['reason:high disk space usage', 'time:2021-03-09 17:39:00']",0.0,task_4
+"Within the time range of March 4, 2021, from 21:00 to 21:30, there was a single failure in the system. The exact time when the root cause of this failure occurred is currently unknown. Your task is to determine the root cause occurrence datetime.",,"The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-04 21:06:00
+",[],['time:2021-03-04 21:06:00'],0.0,task_1
+"During the specified time range of March 4, 2021, from 13:30 to 14:00, there was a single failure. The exact reason for this failure remains unknown. Please identify the root cause reason.",,"The only predicted root cause reason is high JVM CPU load
+",[],['reason:high JVM CPU load'],0.0,task_2

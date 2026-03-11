@@ -1,0 +1,31 @@
+instruction,task_index,scoring_points
+The cart-service repeatedly fails to acquire a DB connection because the connection pool is fully saturated. frontend and auth-service are healthy.,task_1,"The only predicted root cause component is cart-service
+The only predicted root cause reason is database connection pool exhausted
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+The payment-service process crashes with OOM. All payment calls fail immediately. Other services are healthy.,task_2,"The only predicted root cause component is payment-service
+The only predicted root cause reason is out-of-memory crash
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+The notification-service was deployed with a rotated API key that was never updated in the config. Every outbound call returns 401. All other services are unaffected.,task_3,"The only predicted root cause component is notification-service
+The only predicted root cause reason is invalid API key in configuration
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+auth-service p99 latency spikes to 8s due to an unindexed DB query introduced in the latest deploy. checkout-service times out waiting for auth validation; frontend shows 504s. cart-service is healthy.,task_4,"The only predicted root cause component is auth-service
+The only predicted root cause reason is slow database query due to missing index
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+product-service was deployed with a regression that performs a full-table scan on the shared products DB. This saturates DB connections so cart-service and order-service both begin timing out. frontend sees cascading errors.,task_5,"The only predicted root cause component is product-service
+The only predicted root cause reason is full table scan saturating shared database connections
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+"event-processor stopped consuming Kafka messages after a NullPointerException in its deserialization logic. recommendation-service and analytics-service, both of which depend on processed events, start returning stale or empty results.",task_6,"The only predicted root cause component is event-processor
+The only predicted root cause reason is consumer crash due to deserialization NullPointerException
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+"frontend and cart-service both show elevated error rates. A recent deploy to inventory-service introduced a bug returning stock=0 for all items, causing checkout to abort with 'item unavailable'. Metrics on cart-service look fine at first glance — it is inventory-service returning bad data that is the true root cause.",task_7,"The only predicted root cause component is inventory-service
+The only predicted root cause reason is deployment regression returning incorrect zero stock count
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+A new release of shipping-service introduced a locale parsing bug that only affects international order addresses (non-US ZIP codes). order-service shows intermittent 500s (~30%). Domestic orders succeed; only international ones fail silently. shipping-service itself reports no errors on health check.,task_8,"The only predicted root cause component is shipping-service
+The only predicted root cause reason is locale parsing regression in new version for international addresses
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+"config-service's Redis cache became stale after a cache flush. It started serving default (disabled) feature flags instead of the live values. Three services (payment-service, search-service, recommendation-service) suddenly stopped executing premium code paths, causing widespread user-visible degradation. Each of the three downstream services logs its own apparent 'config read' errors.",task_9,"The only predicted root cause component is config-service
+The only predicted root cause reason is stale Redis cache serving default feature flags after cache flush
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"
+"A misconfigured rate-limiter in api-gateway was set to 10 req/s globally instead of 10 req/s per user. During peak traffic all downstream services see intermittent 429 errors. Each service logs the rejections as its own upstream errors. search-service, cart-service, and user-service all appear to be failing. The actual root cause is the api-gateway rate-limit config.",task_10,"The only predicted root cause component is api-gateway
+The only predicted root cause reason is rate limiter misconfigured with global limit instead of per-user limit
+The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2024-06-01 10:00:00"

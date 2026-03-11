@@ -1,0 +1,1072 @@
+scenario_id,task_index,difficulty,title,prediction,score,passing,failing,error
+bank_001,task_1,medium,[Bank] IG02 — high CPU usage,"{""root cause occurrence datetime"": ""2021-03-09 01:38:00"", ""root cause component"": ""Mysql01"", ""root cause reason"": ""The incident appears to have originated in the MySQL database cluster, specifically on Mysql01. At 01:38:00, Mysql01 reported a critically high `Innodb row lock time max` of 31867.0 (approximately 31 seconds). This indicates that a transaction was holding a row lock for an extended period, blocking other operations.\n\nSimultaneously, at 01:38:00, Tomcat services (Tomcat02, Tomcat03, Tomcat04) experienced a drastic spike in `MaxTimeRequestInfo` (over 320 seconds). This direct correlation suggests that application requests were hanging for several minutes while waiting for the database to release locks or complete transactions.\n\nFurther evidence of database stress comes from Mysql02, which logged an `InnoDB: page_cleaner: 1000ms intended loop took 5440ms` error at 01:55:13. This indicates severe I/O contention or a heavily loaded buffer pool, consistent with a database under duress from prolonged locking or high write activity.\n\nThe propagation chain is as follows:\n1.  **Mysql01 (Patient Zero):** A transaction caused an extended row lock at 01:38:00, leading to blocking database operations.\n2.  **Tomcat Services (Affected Applications):** Dependent requests from Tomcat applications to Mysql01 were stalled, resulting in `MaxTimeRequestInfo` spikes and general unresponsiveness. The `GC (Allocation Failure)` events in Tomcat02 starting at 01:38:44 are likely a secondary symptom, indicating increased memory pressure from queued requests or long-lived objects tied to hanging database calls.\n3.  **Apache01 (Load Balancer):** As the gateway to the Tomcat services, Apache01 would experience increased latency and potentially errors as its backend servers became slow or unresponsive.\n4.  **MG/IG Services (Upstream Dependencies):** These services, being upstream to Tomcat, would also experience cascading failures (timeouts, slow responses) due to the underlying Tomcat unresponsiveness.\n5.  **Redis01 (Secondary Symptom/Exacerbating Factor):** The extremely high `rdb_changes_since_last_save` on Redis01 (over 1 billion) at 02:38:00 indicates a massive and sustained write load. While not the initial trigger for the application request delays, it suggests another system under heavy pressure, which could exacerbate overall system performance issues or be a result of application retry logic during the outage.\n\nThe earliest and most direct evidence pointing to the root cause is the `Innodb row lock time max` on Mysql01, causing immediate and severe application slowdowns.""}",0.0,[],['time:2021-03-09 18:08:00'],
+bank_002,task_2,medium,[Bank] Redis02 — high CPU usage,"{""root cause occurrence datetime"": ""2021-03-03 14:41:57"", ""root cause component"": ""Redis01"", ""root cause reason"": ""The system-wide outage appears to stem from an excessive write load on the Redis cluster, likely triggered by the 'k6' load test. The 'k6' requests are observed in `apache_access_log` and `Tomcat03/04` `localhost_access_log` logs starting around 14:31:00.\n\nKey observations:\n1.  **Redis Services (Redis01, Redis02) are \ud83d\udd34:** Both instances show extremely high `rdb_changes_since_last_save` metrics (957,829,800 on Redis01 and 782,461,033 on Redis02 at 15:31:00). These values indicate a massive number of changes have accumulated since the last successful RDB save, suggesting Redis is under severe write pressure or failing to persist data to disk. This can lead to increased CPU, memory (due to Copy-on-Write for BGSAVE), and disk I/O, causing latency or blocking operations.\n2.  **Tomcat Services (Tomcat01-04) are \ud83d\udd34:**\n    *   `Tomcat01` and `Tomcat02` report exceptionally high `ProcessingTimeRequestInfo` (e.g., 7.9 billion ms) and high `JVMUsedMemory` (~80-90% of `JVMMaxMemory`) at 15:31:00. This indicates requests are experiencing extreme latency and the application servers are under memory stress, consistent with waiting on a slow dependency.\n    *   `Tomcat03` and `Tomcat04` show multiple `GC (Allocation Failure)` events (e.g., `Tomcat04` at 14:41:57, `Tomcat03` at 14:46:29). These events, occurring shortly after the `k6` load test began, signify the JVMs are struggling with rapid object allocation and garbage collection, a common symptom when applications are overloaded or blocked by slow backend services.\n3.  **MG & IG Services are \ud83d\udd34:** These are likely downstream application services that depend on Tomcat or Redis, experiencing cascading failures.\n4.  **Apache01 and Mysql01/02 are \ud83d\udfe2:** Apache01 is green, indicating it's functioning as a proxy but its upstream services are failing. MySQL services are healthy, ruling out the database as the root cause.\n\n**Propagation:** The 'k6' load test initiated a high volume of requests, which cascaded through `apache01` to the `Tomcat` application servers. These application servers, in turn, performed an excessive number of write operations to Redis. Redis became overwhelmed, leading to a massive accumulation of unsaved RDB changes and degraded performance. This Redis degradation then caused severe latency and resource exhaustion (high JVM memory, GC thrashing, extremely long processing times) across the dependent Tomcat, MG, and IG services, resulting in a widespread outage.""}",0.0,[],['reason:high CPU usage'],
+bank_003,task_3,medium,[Bank] Tomcat01 — high CPU usage,"{""root cause occurrence datetime"": ""2021-03-09 12:10:25"", ""root cause component"": ""Tomcat01"", ""root cause reason"": ""```json\n{\n  \""root_cause_service\"": \""Tomcat01\"",\n  \""root_cause_datetime\"": \""2021-03-09 12:10:25\"",\n  \""confidence\"": 0.9,\n  \""reasoning\"": \""The alert on `apache01` appears to be a cascading symptom rather than the root cause, as its internal metrics and access logs were normal around the alert time. All `Tomcat` services (Tomcat01-04) are red and exhibit frequent `GC (Allocation Failure)` logs, with `Tomcat01` showing the earliest event at `2021-03-09 12:10:25`. This indicates significant memory pressure and performance degradation within the application tier.\\n\\nThe most striking anomaly is observed on `Redis01` (red) and `Redis02` (green), both reporting `rdb_changes_since_last_save` values exceeding 900 million and over 1 billion, respectively, by `13:08:00`. This metric counts the number of dataset changes since the last RDB save. Such exceptionally high values are highly anomalous and strongly suggest an extreme and unprecedented volume of write operations directed at the Redis cluster.\\n\\nThis excessive write load is originating from the application layer (Tomcats, MGs, IGs) and is overwhelming Redis. The propagation of the failure is as follows:\\n1.  A change in the application logic (likely a recent deployment or configuration) on the Tomcat servers (and potentially MG/IG services) triggers a massive, unintended write storm to Redis.\\n2.  Redis, particularly `Redis01`, struggles to cope with this immense change rate, even if its `used_memory_peak` is relatively low, leading to performance degradation or potential persistence issues, causing `Redis01` to be marked as red.\\n3.  The application services (Tomcats, MGs) making these write requests experience increased latency when interacting with the overwhelmed Redis.\\n4.  This increased latency causes application threads on the `Tomcat` instances to remain active longer, consuming more memory and leading to frequent `GC (Allocation Failure)` events, as observed across all Tomcats starting from `12:10:25` on `Tomcat01`.\\n5.  `MG01`, `MG02`, and `IG02` being red, with `IG02` showing a recent JVM restart, further supports the hypothesis that these dependent application services are struggling due to the upstream Redis and application performance issues.\\n6.  Ultimately, the performance degradation in the application layer impacts the frontend `apache01`, leading to its alert.\\n\\nThe `Tomcat` services are the \""Patient Zero\"" as they host the application code that initiated the excessive Redis writes, with `Tomcat01` showing the earliest clear symptom of the resulting memory pressure.\"",\n  \""recommended_action\"": \""Revert the last application deployment to the Tomcat cluster.\""\n}\n```""}",1.0,['component:Tomcat01'],[],
+bank_004,task_5,medium,[Bank] Redis02 — high CPU usage,"{""root cause occurrence datetime"": ""2021-03-04 03:44:00"", ""root cause component"": ""Mysql01"", ""root cause reason"": ""The earliest and most critical anomalous event identified is a prolonged database row lock on Mysql01, indicated by `Mysql-MySQL_3306_Innodb row lock time max: 31867.0` at 2021-03-04 03:44:00. A 31.8-second row lock is an extremely high value, signifying severe contention or a runaway transaction within the database.\n\nThis database issue would directly impact upstream services. Applications (likely Java services like Tomcat, MG, and IG) relying on Mysql01 for data access would experience delays or timeouts when attempting to acquire locks or read/write data. This blockage propagates as follows:\n1.  **Mysql01** experiences a critical row lock at 03:44:00.\n2.  **Tomcat01-04** instances, being application servers, would be unable to complete database transactions promptly. This would lead to increased request processing times (`ProcessingTimeRequestInfo`) and a buildup of pending requests (`RequestCountRequestInfo`), causing them to become RED.\n3.  **MG01-02** and **IG01-02** (likely other microservices or backend components) would similarly be impacted if they depend on the same database resources or services upstream (like Tomcat). Their RED status is a clear symptom of this cascading failure.\n4.  **Redis01-02** are also RED. The extremely high `rdb_changes_since_last_save` metrics at 04:44:00 (hundreds of millions of changes) could be a secondary effect. As applications struggle due to database slowness, they might generate excessive cache invalidations, retries, or other operations leading to high write activity in Redis, or perhaps a problematic caching pattern exacerbated by the primary issue.\n5.  Finally, the alert on **apache01**, while apache01 itself remains GREEN (indicating its own processes are healthy), is likely a symptom of the downstream service degradation. Apache is unable to get timely responses from the overloaded Tomcat servers, leading to elevated response times or error rates for user requests.\n\nThe timeline of events strongly suggests the Mysql01 row lock as the initiating incident, with other service failures being a direct consequence of this bottleneck.""}",0.0,[],"['component:Redis02', 'time:2021-03-04 20:14:00']",
+bank_005,task_6,medium,[Bank] Tomcat03 — high CPU usage,"{""root cause occurrence datetime"": ""2021-03-06 15:41:00"", ""root cause component"": ""Mysql01"", ""root cause reason"": ""The incident likely originated from a prolonged row lock on `Mysql01`, evidenced by `Innodb row lock time max: 31867.0` (31.8 seconds) recorded at `15:42:00`. This indicates a critical database transaction was holding a row lock for an unacceptably long period, severely blocking other operations. This is corroborated by the `MaxTimeRequestInfo` on all `Tomcat` services showing extremely high values (e.g., 348-399 seconds) at `15:41:00`, indicating that application requests started hanging around this precise time. Concurrently, `Tomcat` instances began experiencing frequent `GC (Allocation Failure)` events (e.g., `15:41:04` on Tomcat02), likely due to accumulating objects from stalled requests or increased retry attempts as they waited for database responses. The degradation of `Tomcat` services propagated upstream, causing `apache01` to alert. Downstream services like `IG02`, `MG01`, and `MG02` becoming RED are secondary effects of the `Tomcat` services being slow or unresponsive. `Redis01` showing an extremely high `rdb_changes_since_last_save` suggests increased cache churn, potentially aggravating the situation due to overloaded persistence mechanisms as applications struggled to compensate for database slowness. The `slow` logs on `Mysql01` referencing `Tomcat03` and `Tomcat04` for `commit` operations during this period further confirm active database interactions from these application servers were impacted by the underlying database contention.""}",0.0,[],"['component:Tomcat03', 'reason:high CPU usage']",
+bank_006,task_1,medium,[Bank] IG02 — network packet loss,"{""root cause occurrence datetime"": ""2021-03-08 16:49:00"", ""root cause component"": ""Mysql01"", ""root cause reason"": ""The earliest anomalous event observed is on `Mysql01` at `2021-03-08 16:49:00`, where the `Innodb row lock time max` metric reports a value of 31867.0 milliseconds (31 seconds). A 31-second row lock indicates severe database contention or a long-running, blocked transaction, which is a critical performance issue for a database.\n\nThis database contention immediately precedes the appearance of slow query logs on `Mysql01` at `2021-03-08 16:50:27`, showing queries with execution times exceeding 1 second. One of these slow queries is explicitly attributed to `Tomcat04`, confirming that Tomcat services were experiencing database slowness.\n\nThe failure then propagated to the application layer, with `Tomcat02` logging a 500 HTTP error for a `/UOCP/person/ServiceTest9.json` request at `2021-03-08 16:53:55`. This application-level error is a direct symptom of the upstream database issues, likely due to queries timing out or failing when interacting with the locked or slow database.\n\nSubsequently, `apache01` (acting as a proxy/load balancer) and other `Tomcat` instances (Tomcat01, Tomcat03, Tomcat04) would experience degraded performance or errors, leading to their alerted status. `Redis01`, `MG01`, and `MG02` alerts are likely secondary effects of the application layer being under stress, such as increased connection pool exhaustion, higher latency, or application-driven retries.\n\nWhile specific deployment or configuration changes are not available in the provided data, the `Innodb row lock time max` strongly suggests a problematic database query or transaction as the trigger, possibly introduced by a recent code change, a data volume increase, or a specific user load pattern.""}",0.0,[],['time:2021-03-09 09:18:00'],
+bank_007,task_2,medium,[Bank] MG01 — network packet loss,"{""root cause occurrence datetime"": ""2021-03-11 18:24:00"", ""root cause component"": ""Tomcat"", ""root cause reason"": ""The outage's origin lies in the `Tomcat` application tier, specifically due to widespread `[GC (Allocation Failure)]` messages observed across all `Tomcat` instances, with the earliest recorded on `Tomcat02` at `2021-03-11 18:24:05`. These messages signify severe memory pressure and frequent, costly garbage collection cycles, leading to application unresponsiveness. The `localhost_access_log` on `Tomcat01` and `apache_access_log` clearly show requests originating from `k6/0.29.0` (a load testing tool) starting as early as `2021-03-11 18:24:00`. This correlation strongly indicates that an aggressive load test initiated around this time is 'Patient Zero', causing a surge in traffic and object churn, overwhelming the Tomcat application servers' memory capacity.\n\nThe failure propagated as follows:\n1.  **Trigger:** An aggressive `k6` load test began around `2021-03-11 18:24:00`, directing significant traffic to the `Tomcat` application servers (as seen in `k6` access logs).\n2.  **Tomcat Services:** The high request volume and associated processing caused a rapid increase in object allocations, exhausting JVM Young Generation heap space, leading to frequent `ParNew` garbage collections with 'Allocation Failure' messages across all Tomcat instances. These GC pauses severely degraded `Tomcat` service performance and availability, starting from 18:24:05.\n3.  **Apache01:** As the frontend proxy/load balancer, `apache01` experienced increased latency and likely backend errors/timeouts from the struggling `Tomcat` services, leading to its own alert. Access logs on `apache01` show successful 200 responses as late as 18:57:25, implying degradation over time rather than an immediate hard failure.\n4.  **Dependent Services (MG, IG, Redis01):** Other critical backend services like `MG01`, `MG02`, `IG01`, `IG02`, and `Redis01` subsequently turned red. This is consistent with a cascading failure where upstream application slowness or unresponsiveness impacts dependent services. For `Redis01`, the very high `rdb_changes_since_last_save` metric suggests a heavy write load, possibly due to increased application activity or retries from the stressed `Tomcat` tier.\n5.  **Database Stress (Mysql02):** `Mysql02` exhibited `InnoDB: page_cleaner` warnings from 18:26:13, indicating I/O pressure. While still green, this is a clear symptom of increased database load as a secondary effect of the application layer struggles (e.g., application retries, slower transactions holding connections longer).\n\nThe initial filesystem space issues observed on `apache01` and `MG` services are secondary concerns that could exacerbate issues but are not the primary cause of the widespread application memory pressure.""}",0.0,[],['reason:network packet loss'],
+bank_008,task_3,medium,[Bank] Tomcat04 — network packet loss,"{""root cause occurrence datetime"": ""2021-03-22 22:54:00"", ""root cause component"": ""IG01, IG02"", ""root cause reason"": ""The incident originated at 2021-03-22 22:54:00 (UTC+8) when both IG01 and IG02 services simultaneously reported critical memory utilization of 98%. This indicates a severe memory exhaustion event, strongly suggesting a memory leak or an unexpected surge in memory consumption that the systems could not handle. Concurrently, apache01, which likely acts as a load balancer/proxy for the application, also reported 100% CPU usage, indicating it was overwhelmed either by a flood of incoming requests or by struggling to connect to the unresponsive IG backend services. The presence of 'k6/0.29.0' in the apache access logs around this time strongly suggests that a load test was initiated or intensified, acting as the trigger that exposed the memory vulnerability in the IG services. \n\nThe failure propagated as follows:\n1.  **IG01/IG02 Memory Exhaustion (22:54:00):** The primary integration gateways became critically memory-starved, leading to severe performance degradation or unresponsiveness. This is identified as 'Patient Zero'.\n2.  **apache01 Overload (22:54:00):** As IG services became slow or unresponsive, apache01's CPU spiked as it handled client requests that were now backing up or timing out against the struggling IG services.\n3.  **Redis01 CPU Spike (22:59:00):** The degraded performance of IG and potentially downstream Tomcat services likely led to increased cache misses or a 'thundering herd' effect, causing Redis01 to hit 100% CPU.\n4.  **Tomcat Performance Degradation (ProcessingTimeRequestInfo high by 23:54:00):** The Tomcat application servers, dependent on IG and Redis, experienced severe processing delays as requests piled up, evidenced by the extremely high 'ProcessingTimeRequestInfo' metrics.\n5.  **MySQL Degradation (23:07:31 onwards):** The sustained high load and increased latency from the application and integration tiers eventually overwhelmed the MySQL databases. Mysql02, in particular, reported 'page_cleaner' loops taking up to 24845ms, indicating severe I/O contention and critical database performance issues.\n\nThe timeline shows a clear progression from memory exhaustion in the integration layer (IG01/IG02) to cascading failures across the web servers, cache, and eventually the database, consistent with a load-triggered memory leak at the integration layer.""}",0.0,[],['component:Tomcat04'],
+bank_009,task_4,medium,[Bank] MG02 — network packet loss,"{""root cause occurrence datetime"": ""2021-03-25 06:31:01"", ""root cause component"": ""Tomcat cluster"", ""root cause reason"": ""The earliest and most consistent anomalous events are the 'GC (Allocation Failure)' logs across all four Tomcat instances (Tomcat01, Tomcat02, Tomcat03, Tomcat04), starting at 06:31:01 on Tomcat03. These logs indicate that the Java applications running on these servers are experiencing severe memory pressure and frequent garbage collection, leading to performance degradation and unresponsiveness. This is a strong indicator of an application-level memory leak or highly inefficient memory usage. \n\nThis issue in the Tomcat cluster is the likely 'Patient Zero' and would explain the downstream failures:\n1.  `apache01` (the focus service) would become red because it cannot get timely or successful responses from its backend Tomcat servers.\n2.  `MG01`, `MG02`, and `IG02` are also reported as red. As these are likely backend services that depend on the Tomcat application's functionality, their failure is a direct consequence of the unresponsive Tomcat instances. Their own memory metrics (HeapMemoryUsed) appear normal, suggesting they aren't suffering from internal memory issues but rather dependency failures.\n3.  `Redis01` is red and shows an extremely high `rdb_changes_since_last_save` (1.5 billion), which could be a symptom of the struggling Tomcat applications writing excessive data to Redis, or triggering frequent Redis save operations that block. `Redis02` is healthy, suggesting it's not a general Redis infrastructure issue. The low 'used_memory' on Redis01 further supports that it's not a simple memory exhaustion, but potentially related to write patterns from the failing application.\n\nWhile the Apache access logs show 200 OK responses at 07:00:00, this is after the GC issues began and could represent synthetic checks or requests that occasionally complete amidst widespread slowness and errors, leading to the overall alert state.""}",0.0,[],"['reason:network packet loss', 'time:2021-03-25 22:01:00']",
+bank_010,task_6,medium,[Bank] MG02 — network packet loss,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 52.380197108s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '52s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 52.380197108s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '52s'}]}}
+"
+bank_011,task_1,medium,[Bank] Tomcat02 — network latency,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 48.905789877s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '48s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 48.905789877s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '48s'}]}}
+"
+bank_012,task_3,medium,[Bank] Tomcat01 — network latency,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 41.963769955s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '41s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 41.963769955s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '41s'}]}}
+"
+bank_013,task_4,medium,[Bank] MG02 — network latency,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 36.528078002s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '36s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 36.528078002s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '36s'}]}}
+"
+bank_014,task_6,medium,[Bank] Tomcat01 — network latency,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 29.961223467s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '29s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 29.961223467s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '29s'}]}}
+"
+bank_015,task_1,medium,[Bank] MG01 — high disk I/O read usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 25.844162987s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '25s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 25.844162987s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '25s'}]}}
+"
+bank_016,task_3,medium,[Bank] Tomcat02 — high disk I/O read usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 20.549676508s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '20s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 20.549676508s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '20s'}]}}
+"
+bank_017,task_4,medium,[Bank] MG02 — high disk I/O read usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 13.616006517s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '13s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 13.616006517s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '13s'}]}}
+"
+bank_018,task_5,medium,[Bank] apache02 — high disk I/O read usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 4.621492795s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '4s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 4.621492795s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '4s'}]}}
+"
+bank_019,task_1,hard,[Bank] Mysql02 — high memory usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 1.61594727s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '1s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 1.61594727s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '1s'}]}}
+"
+bank_020,task_2,hard,[Bank] Tomcat04 — high memory usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 56.125670392s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '56s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 56.125670392s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '56s'}]}}
+"
+bank_021,task_2,hard,[Bank] Mysql02 — high memory usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 53.049491327s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '53s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 53.049491327s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '53s'}]}}
+"
+bank_022,task_1,hard,[Bank] Tomcat02 — JVM Out of Memory (OOM) Heap,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 48.729307072s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '48s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 48.729307072s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '48s'}]}}
+"
+bank_023,task_2,hard,[Bank] MG02 — JVM Out of Memory (OOM) Heap,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 45.711540062s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '45s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 45.711540062s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '45s'}]}}
+"
+bank_024,task_2,easy,[Bank] IG02 — high disk space usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 41.560579479s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '41s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 41.560579479s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '41s'}]}}
+"
+bank_025,task_4,easy,[Bank] apache01 — high disk space usage,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 35.761817271s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '35s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 35.761817271s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '35s'}]}}
+"
+bank_026,task_1,hard,[Bank] IG01 — high JVM CPU load,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 32.331498331s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '32s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 32.331498331s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '32s'}]}}
+"
+bank_027,task_2,hard,[Bank] MG02 — high JVM CPU load,,0.0,[],[],"Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 63, in generate_content
+    response = self.client.models.generate_content(
+        model=self.model_id,
+        contents=prompt,
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 5227, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/models.py"", line 4009, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1386, in request
+    response = self._request(http_request, http_options, stream=False)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1222, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 475, in __call__
+    do = self.iter(retry_state=retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 376, in iter
+    result = action(retry_state)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 418, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 185, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File ""/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py"", line 401, in __get_result
+    raise self._exception
+  File ""/opt/anaconda3/lib/python3.13/site-packages/tenacity/__init__.py"", line 478, in __call__
+    result = fn(*args, **kwargs)
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/_api_client.py"", line 1199, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 121, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File ""/opt/anaconda3/lib/python3.13/site-packages/google/genai/errors.py"", line 146, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 28.370711541s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '28s'}]}}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/run_openrca_eval.py"", line 149, in run_bank_scenario
+    agent_output = agent.analyze(context)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../graph/agent.py"", line 38, in analyze
+    response_str = self.client.generate_content(prompt)
+  File ""/Users/meghna/Desktop/AppsWithLLMs/CS224G-SRE/eval/../eval/../llm_integration/client.py"", line 77, in generate_content
+    raise RuntimeError(
+    ...<3 lines>...
+    ) from e
+RuntimeError: Gemini quota exhausted for gemini-2.5-flash. This model may not have a free tier. Original error: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash\nPlease retry in 28.370711541s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-2.5-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '28s'}]}}
+"
