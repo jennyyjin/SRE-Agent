@@ -132,6 +132,82 @@ Scores are lower on real data than synthetic because real incidents have noisy s
 
 ---
 
+## Slack Connector
+
+RootScout posts incident alerts and RCA reports to Slack via a Slack Bot. The connector lives in `RootScout/slack_connector.py`.
+
+### Setup
+
+**1. Create a Slack Bot**
+
+- Go to [api.slack.com/apps](https://api.slack.com/apps) -> **Create New App -> From scratch**
+- Under **OAuth & Permissions**, add bot scopes: `chat:write`, `chat:write.public`
+- **Install to Workspace** and copy the **Bot OAuth Token** (`xoxb-...`)
+- Under **Slash Commands**, create `/rca` pointing to `https://<your-host>/slack/commands`
+
+**2. Add to `.env`**
+
+```bash
+SLACK_BOT_TOKEN=xoxb-your-bot-token    
+SLACK_ALERT_CHANNEL=#incidents           # default: #incidents
+SLACK_RCA_CHANNEL=                       # defaults to alert channel
+SLACK_SIGNING_SECRET=                    # for /rca slash command verification
+SLACK_ALERT_COOLDOWN_SECONDS=300         # seconds between repeat alerts per service
+```
+
+**3. Run the demo**
+
+```bash
+python demo_slack.py
+```
+
+Without `SLACK_BOT_TOKEN` it runs in dry-run mode (prints what would be sent). With the token it posts real messages 
+
+### Usage
+
+```python
+from RootScout.slack_connector import SlackConfig, SlackNotifier
+
+notifier = SlackNotifier(SlackConfig(bot_token="xoxb-..."))
+
+# Incident alert
+notifier.post_incident_alert(service="cart-service", status="error", signal="trace")
+
+# RCA report
+notifier.post_rca_report(focus_service="cart-service", report={
+    "root_cause_service": "cart-service",
+    "confidence": 0.92,
+    "reasoning": "...",
+    "recommended_action": "kubectl rollout undo deployment/cart-service",
+})
+```
+
+Wrap any `TelemetrySink` with `SlackAlertSink` to auto-alert on ERROR telemetry:
+
+```python
+from RootScout.slack_connector import SlackAlertSink
+
+sink = SlackAlertSink(notifier=notifier, inner_sink=your_existing_sink)
+```
+
+### `/rca` Slash Command
+
+With the server running, type `/rca <service>` in Slack to trigger on-demand RCA. The result is posted back to the configured channel.
+
+```bash
+python -m uvicorn RootScout.main:create_app --factory --port 8000
+```
+
+### Tests
+
+```bash
+python test_slack_connector.py             # unit + integration (no network)
+python test_slack_connector.py --live      # posts real messages (needs SLACK_BOT_TOKEN)
+python test_slack_connector.py --endpoint  # smoke-tests /slack/commands (server must be running)
+```
+
+---
+
 ## Project layout
 
 ```
@@ -140,5 +216,5 @@ llm_integration/   Gemini and Claude client wrappers
 eval/              Evaluation scripts and scenarios
 RootScout/         OTel ingester service (FastAPI)
 Ingester/          GitHub webhook ingester
-slack_integration/ Slack notification connector
+slack_integration/ Legacy Slack webhook notifier
 ```
