@@ -18,14 +18,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 from dotenv import load_dotenv
 load_dotenv()
 
-RESET  = "\033[0m"
-BOLD   = "\033[1m"
-GREEN  = "\033[32m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+GREEN = "\033[32m"
 YELLOW = "\033[33m"
-CYAN   = "\033[36m"
-RED    = "\033[31m"
-GREY   = "\033[90m"
-DIM    = "\033[2m"
+CYAN = "\033[36m"
+RED = "\033[31m"
+GREY = "\033[90m"
+DIM = "\033[2m"
 
 def ok(text):   print(f"  {GREEN}[ok]{RESET}  {text}")
 def warn(text): print(f"  {YELLOW}[warn]{RESET} {text}")
@@ -41,9 +41,9 @@ class DryRunNotifier:
         print(f"\n  {YELLOW}[DRY-RUN] Incident Alert{RESET}")
         _print_preview({
             "service": service,
-            "status":  status.upper(),
-            "signal":  signal,
-            "detail":  detail,
+            "status": status.upper(),
+            "signal": signal,
+            "detail": detail,
         })
 
     def post_rca_report(self, focus_service, report):
@@ -51,10 +51,10 @@ class DryRunNotifier:
         reasoning = str(report.get("reasoning", ""))
         _print_preview({
             "focus_service": focus_service,
-            "root_cause":    report.get("root_cause_service"),
-            "confidence":    f"{float(report.get('confidence', 0)) * 100:.0f}%",
-            "reasoning":     reasoning[:160] + ("..." if len(reasoning) > 160 else ""),
-            "action":        report.get("recommended_action"),
+            "root_cause": report.get("root_cause_service"),
+            "confidence": f"{float(report.get('confidence', 0)) * 100:.0f}%",
+            "reasoning": reasoning[:160] + ("..." if len(reasoning) > 160 else ""),
+            "action": report.get("recommended_action"),
         })
 
 
@@ -67,11 +67,9 @@ def _print_preview(d):
 
 
 def main():
-    print(f"\n{BOLD}{'=' * 60}{RESET}")
     print(f"{BOLD}  RootScout Slack Integration Demo{RESET}")
-    print(f"{BOLD}{'=' * 60}{RESET}")
-    print(f"\n  Scenario  : E-commerce checkout failures")
-    print(f"  Topology  : frontend -> auth-service (healthy)")
+    print(f"\n  Scenario: E-commerce checkout failures")
+    print(f"  Topology: frontend -> auth-service (healthy)")
     print(f"              frontend -> cart-service (error) -> database")
     print(f"  Root cause: cart-service database connection pool exhausted")
 
@@ -134,13 +132,13 @@ def main():
 
     print()
     r = otel_ingester.ingest_traces(traces)
-    ok(f"Traces  : {r.count} spans ingested")
+    ok(f"Traces: {r.count} spans ingested")
 
     r = otel_ingester.ingest_metrics(metrics)
-    ok(f"Metrics : {r.count} data points ingested")
+    ok(f"Metrics: {r.count} data points ingested")
 
     r = otel_ingester.ingest_logs(logs)
-    ok(f"Logs    : {r.count} records ingested")
+    ok(f"Logs: {r.count} records ingested")
 
     time.sleep(0.4)
 
@@ -150,19 +148,19 @@ def main():
     import networkx as nx
     for svc in ["frontend", "cart-service", "auth-service", "database"]:
         graph_builder._ensure_node(svc)
-    graph_builder.graph.add_edge("frontend",     "cart-service", latency=70)
-    graph_builder.graph.add_edge("frontend",     "auth-service", latency=50)
-    graph_builder.graph.add_edge("cart-service", "database",     latency=30)
+    graph_builder.graph.add_edge("frontend", "cart-service", latency=70)
+    graph_builder.graph.add_edge("frontend", "auth-service", latency=50)
+    graph_builder.graph.add_edge("cart-service", "database", latency=30)
     nx.set_node_attributes(graph_builder.graph, {
         "cart-service": {"status": "error"},
-        "frontend":     {"status": "ok"},
+        "frontend": {"status": "ok"},
         "auth-service": {"status": "ok"},
-        "database":     {"status": "ok"},
+        "database": {"status": "ok"},
     })
     graph_builder.graph.nodes["cart-service"]["recent_events"].append({
-        "type":      "error_log",
-        "severity":  "ERROR",
-        "message":   "Connection pool exhausted — timeout waiting for connection",
+        "type": "error_log",
+        "severity": "ERROR",
+        "message": "Connection pool exhausted — timeout waiting for connection",
         "timestamp": time.time(),
     })
 
@@ -200,7 +198,7 @@ def main():
     info("Extracting context from dependency graph...")
 
     from graph.agent import RCAAgent
-    from llm_integration.client import MockClient, AnthropicClient
+    from llm_integration.client import MockClient, ClaudeClient
 
     context = ContextRetriever(graph_builder).get_context("cart-service")
     ok(f"Context packet: {len(context.get('related_nodes', []))} related services")
@@ -208,20 +206,20 @@ def main():
     # attach synthetic GitHub event 
     import tempfile
     gh_events = [{
-        "ingested_at":     time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "event_type":      "pull_request",
-        "repo_owner":      "demo-org",
-        "repo_name":       "ecommerce",
-        "service_id":      "cart-service",
+        "ingested_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "event_type": "pull_request",
+        "repo_owner": "demo-org",
+        "repo_name": "ecommerce",
+        "service_id": "cart-service",
         "watch_path_prefix": "services/cart",
-        "pr_number":       156,
-        "title":           "Increase database connection pool size",
-        "url":             "https://github.com/demo-org/ecommerce/pull/156",
+        "pr_number": 156,
+        "title": "Increase database connection pool size",
+        "url": "https://github.com/demo-org/ecommerce/pull/156",
         "files": [{
-            "filename":   "services/cart/database.py",
-            "status":     "modified",
-            "additions":  3,
-            "deletions":  1,
+            "filename": "services/cart/database.py",
+            "status": "modified",
+            "additions": 3,
+            "deletions": 1,
             "patch": (
                 "@@ -12,7 +12,9 @@ class DatabasePool:\n"
                 "-        self.pool_size = 10\n"
@@ -239,7 +237,7 @@ def main():
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if anthropic_key:
         try:
-            llm = AnthropicClient()
+            llm = ClaudeClient()
             ok("LLM: Claude claude-sonnet-4-6")
         except Exception as exc:
             warn(f"Claude unavailable ({exc}) — falling back to mock client")
@@ -276,9 +274,6 @@ def main():
     ok("RCA report sent")
 
     # summary 
-    print(f"\n{BOLD}{'=' * 60}{RESET}")
-    print(f"{BOLD}  Demo complete{RESET}")
-    print(f"{'=' * 60}")
     if dry_run:
         print(f"\n  To post real messages to Slack, set SLACK_BOT_TOKEN in .env\n")
     else:

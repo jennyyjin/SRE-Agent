@@ -114,21 +114,21 @@ class SlackNotifier:
     ) -> None:
         """Posts an incident alert to the configured alert channel."""
         channel = self._config.alert_channel
-        text = f":rotating_light: Incident: {service} is {status.upper()}"
+        text = f"Incident: {service} is {status.upper()}"
         blocks = self._build_alert_blocks(service, status, signal, detail)
         self._safe_post(channel, text, blocks, label="alert")
 
     def post_rca_report(self, focus_service: str, report: Dict[str, Any]) -> None:
         """Posts a formatted RCA report to the configured RCA channel."""
         channel = self._config.rca_channel or self._config.alert_channel
-        text = f":mag: RCA Report: {focus_service}"
+        text = f"RCA Report: {focus_service}"
         blocks = self._build_rca_blocks(focus_service, report)
         self._safe_post(channel, text, blocks, label="rca-report")
 
     def _build_alert_blocks(
         self, service: str, status: str, signal: str, detail: str
     ) -> list:
-        emoji = ":red_circle:" if status.lower() == "error" else ":large_yellow_circle:"
+        emoji = ""
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         blocks: list = [
@@ -136,15 +136,15 @@ class SlackNotifier:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f":rotating_light: Incident Alert: {service}",
-                    "emoji": True,
+                    "text": f"Incident Alert: {service}",
+                    "emoji": False,
                 },
             },
             {
                 "type": "section",
                 "fields": [
                     {"type": "mrkdwn", "text": f"*Service:*\n`{service}`"},
-                    {"type": "mrkdwn", "text": f"*Status:*\n{emoji} {status.upper()}"},
+                    {"type": "mrkdwn", "text": f"*Status:*\n{status.upper()}"},
                     {"type": "mrkdwn", "text": f"*Signal:*\n{signal}"},
                     {"type": "mrkdwn", "text": f"*Detected at:*\n{ts}"},
                 ],
@@ -184,20 +184,15 @@ class SlackNotifier:
         action = report.get("recommended_action", "")
 
         confidence_pct = f"{confidence * 100:.0f}%"
-        if confidence >= 0.8:
-            conf_emoji = ":large_green_circle:"
-        elif confidence >= 0.5:
-            conf_emoji = ":large_yellow_circle:"
-        else:
-            conf_emoji = ":red_circle:"
+        conf_emoji = ""
 
         blocks: list = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f":mag: RCA Report: {focus_service}",
-                    "emoji": True,
+                    "text": f"RCA Report: {focus_service}",
+                    "emoji": False,
                 },
             },
             {
@@ -206,7 +201,7 @@ class SlackNotifier:
                     {"type": "mrkdwn", "text": f"*Root Cause Service:*\n`{root_cause}`"},
                     {
                         "type": "mrkdwn",
-                        "text": f"*Confidence:*\n{conf_emoji} {confidence_pct}",
+                        "text": f"*Confidence:*\n{confidence_pct}",
                     },
                 ],
             },
@@ -387,7 +382,7 @@ class SlackCommandHandler:
             return {
                 "response_type": "in_channel",
                 "text": (
-                    f":mag: Running RCA for `{service_name}`... "
+                    f"Running RCA for `{service_name}`... "
                     "results will be posted to Slack shortly."
                 ),
             }
