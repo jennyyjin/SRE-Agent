@@ -153,9 +153,26 @@ def create_app() -> FastAPI:
         slack_notifier = SlackNotifier(slack_cfg)
         # wrap the otel_sink so ERROR signals also fire Slack alerts
         otel_sink = SlackAlertSink(notifier=slack_notifier, inner_sink=otel_sink)
+        from llm_integration.client import ClaudeClient, MockClient
+        from graph.agent import RCAAgent
+        import os as _os
+        _anthropic_key = _os.getenv("ANTHROPIC_API_KEY", "").strip()
+        if _anthropic_key:
+            try:
+                _llm = ClaudeClient()
+                print("[config] RCA agent using ClaudeClient")
+            except Exception as _e:
+                print(f"[config] ClaudeClient failed ({_e}), falling back to MockClient")
+                _llm = MockClient()
+        else:
+            print("[config] ANTHROPIC_API_KEY not set; RCA agent using MockClient")
+            _llm = MockClient()
+        _rca_agent = RCAAgent(client=_llm)
+
         slack_command_handler = SlackCommandHandler(
             config=slack_cfg,
             graph_builder=graph_builder,
+            rca_agent=_rca_agent,
         )
     else:
         print("[config] SLACK_BOT_TOKEN not set; Slack integration disabled")
@@ -169,6 +186,7 @@ def create_app() -> FastAPI:
     app.state.gh_ingester = gh_ingester
     app.state.otel_ingester = otel_ingester
     app.state.graph_builder = graph_builder  # May be None if not enabled
+    app.state.slack_command_handler = slack_command_handler
 
     @app.get("/healthz")
     def healthz():

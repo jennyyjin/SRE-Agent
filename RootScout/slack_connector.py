@@ -165,10 +165,7 @@ class SlackNotifier:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": (
-                            f"RootScout detected an error signal. "
-                            f"Trigger full RCA with `/rca {service}`"
-                        ),
+                        "text": f"RootScout detected an error signal for `{service}`.",
                     }
                 ],
             }
@@ -210,7 +207,6 @@ class SlackNotifier:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    # block Kit section text cap: 3000 chars
                     "text": f"*Reasoning:*\n{reasoning[:2900]}",
                 },
             },
@@ -263,15 +259,12 @@ class SlackAlertSink(TelemetrySink):
     ) -> None:
         self._notifier = notifier
         self._inner = inner_sink
-        # service_name -> monotonic timestamp of last alert
         self._last_alert: Dict[str, float] = {}
 
     def emit(self, record: Dict[str, Any]) -> None:
-        # forward to the inner sink first so nothing is lost
         if self._inner:
             self._inner.emit(record)
 
-        # OTLP status_code 2 == ERROR
         is_error = (
             record.get("status_code") == 2
             or str(record.get("status", "")).lower() == "error"
@@ -286,7 +279,6 @@ class SlackAlertSink(TelemetrySink):
         )
         signal = record.get("signal", "trace")
 
-        # cooldown check
         now = time.monotonic()
         cooldown = self._notifier._config.alert_cooldown_seconds
         if now - self._last_alert.get(service, 0.0) < cooldown:
@@ -294,7 +286,6 @@ class SlackAlertSink(TelemetrySink):
 
         self._last_alert[service] = now
 
-        # build a human-readable detail line from the record
         detail = (
             record.get("status_message")
             or (f"span: {record['name']}" if record.get("name") else "")
@@ -327,7 +318,6 @@ class SlackCommandHandler:
         self._graph_builder = graph_builder
         self._rca_agent = rca_agent
 
-    # Signature verification
     def verify_signature(
         self, raw_body: bytes, timestamp: str, signature: str
     ) -> bool:
@@ -368,7 +358,6 @@ class SlackCommandHandler:
         if not self.verify_signature(raw, timestamp, signature):
             raise HTTPException(status_code=401, detail="Invalid Slack request signature")
 
-        # Slack sends application/x-www-form-urlencoded
         params = {k: v[0] for k, v in parse_qs(raw.decode("utf-8")).items()}
         command = params.get("command", "")
         text = params.get("text", "").strip()
@@ -383,7 +372,7 @@ class SlackCommandHandler:
                 "response_type": "in_channel",
                 "text": (
                     f"Running RCA for `{service_name}`... "
-                    "results will be posted to Slack shortly."
+                    "Results will be posted to Slack shortly."
                 ),
             }
 
