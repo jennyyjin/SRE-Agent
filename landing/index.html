@@ -487,7 +487,6 @@
       min-width: 560px;
     }
 
-    /* Source services row */
     .arch-services {
       display: flex;
       align-items: center;
@@ -522,7 +521,6 @@
       letter-spacing: 0.02em;
     }
 
-    /* Vertical connector */
     .arch-connector {
       display: flex;
       flex-direction: column;
@@ -589,7 +587,7 @@
       margin-bottom: 1.25rem;
     }
 
-    /* Ingesters row */
+    /* Ingesters */
     .arch-ingesters {
       display: flex;
       gap: 1.5rem;
@@ -642,7 +640,6 @@
       margin-top: 0.2rem;
     }
 
-    /* Inner connector (shorter) */
     .arch-inner-conn {
       display: flex;
       flex-direction: column;
@@ -949,7 +946,7 @@
     <li><a href="#how-it-works">How It Works</a></li>
     <li><a href="#features">Features</a></li>
     <li><a href="#evaluation">Evaluation</a></li>
-    <li><a href="#quickstart">Quickstart</a></li>
+    <li><a href="#demo">Demo</a></li>
   </ul>
   <a href="https://github.com/asthamohta/CS224G-SRE" class="nav-cta">View on GitHub</a>
 </nav>
@@ -966,7 +963,7 @@
     and surfaces the root cause of incidents — so your on-call team can fix instead of search.
   </p>
   <div class="hero-actions">
-    <a href="#quickstart" class="btn-primary">See the Demo</a>
+    <a href="#demo" class="btn-primary">See the Demo</a>
     <a href="#how-it-works" class="btn-secondary">How It Works</a>
   </div>
 </div>
@@ -1041,33 +1038,33 @@
   <div class="steps">
     <div class="step">
       <div class="step-num">1</div>
-      <h3>Ingest telemetry</h3>
+      <h3>Ingest Telemetry</h3>
       <p>Services emit OpenTelemetry traces, metrics, and logs to RootScout's OTLP endpoints in real time.</p>
     </div>
     <div class="step">
       <div class="step-num">2</div>
-      <h3>Build the graph</h3>
+      <h3>Build the Graph</h3>
       <p>Spans are parsed to automatically construct a live service dependency graph — nodes, edges, and health status.</p>
     </div>
     <div class="step">
       <div class="step-num">3</div>
-      <h3>Scope the blast radius</h3>
+      <h3>Scope the Blast Radius</h3>
       <p>When an alert fires, BFS traversal identifies only the related services. No irrelevant noise sent to the LLM.</p>
     </div>
     <div class="step">
       <div class="step-num">4</div>
-      <h3>Enrich with code context</h3>
+      <h3>Enrich with Code Context</h3>
       <p>Recent GitHub PRs and commits are automatically attached — correlating deployments with the outage window.</p>
     </div>
     <div class="step">
       <div class="step-num">5</div>
-      <h3>LLM analysis</h3>
+      <h3>LLM Analysis</h3>
       <p>A structured prompt is sent to an LLM. The model reasons step-by-step and returns a JSON RCA report.</p>
     </div>
     <div class="step">
       <div class="step-num">6</div>
-      <h3>Notify and act</h3>
-      <p>The RCA is posted to Slack with root cause, confidence, and recommended actions. Available via REST API too.</p>
+      <h3>Notify and Act</h3>
+      <p>The RCA is posted to Slack with root cause, confidence, and recommended actions. </p>
     </div>
   </div>
 
@@ -1149,23 +1146,17 @@
         </div>
       </div>
 
-      <!-- Split connector to outputs -->
-      <div class="arch-split-conn">
-        <div class="arch-split-left"></div>
-        <div class="arch-split-right"></div>
-        <span class="arch-split-arrow left">&#9660;</span>
-        <span class="arch-split-arrow right">&#9660;</span>
+      <!-- Connector to output -->
+      <div class="arch-inner-conn" style="height:3rem; justify-content:center; gap:0.25rem;">
+        <div class="arch-line-plain" style="height:1.8rem;"></div>
+        <div class="arch-arrow-down">&#9660;</div>
       </div>
 
       <!-- Output boxes -->
       <div class="arch-outputs">
         <div class="arch-output">
           <div class="arch-output-name">Slack Alert</div>
-          <div class="arch-output-desc">RCA report posted to #incidents with root cause, confidence, and recommended actions</div>
-        </div>
-        <div class="arch-output">
-          <div class="arch-output-name">REST API</div>
-          <div class="arch-output-desc">GET /rca/{service} &middot; on-demand or automated triggers</div>
+          <div class="arch-output-desc">RCA report posted to #rootscout-alerts with root cause, confidence, and recommended actions</div>
         </div>
       </div>
 
@@ -1207,7 +1198,7 @@
     <div class="feature">
       <div class="feature-tag">Slack</div>
       <h3>Slack Bot</h3>
-      <p>Real-time alerts with severity indicators. Run <code>/rca cart-service</code> from any channel for instant on-demand analysis.</p>
+      <p>Real-time alerts with severity indicators. Incidents are automatically posted to your configured channel with actionable context.</p>
     </div>
     <div class="feature">
       <div class="feature-tag">API</div>
@@ -1313,57 +1304,21 @@
   </div>
 </section>
 
-<!-- ─── Quickstart ─── -->
-<section id="quickstart" class="quickstart" style="background: var(--bg2); max-width: 100%; padding: 6rem 2rem;">
+<!-- ─── Demo ─── -->
+<section id="demo" style="background: var(--bg2); max-width: 100%; padding: 6rem 2rem;">
 <div style="max-width: 1100px; margin: 0 auto;">
-  <p class="section-tag">Quickstart</p>
-  <h2>Up and running in minutes.</h2>
-  <p class="section-sub">Clone, configure, and start investigating incidents in your environment.</p>
-
-  <div class="terminal">
-    <div class="terminal-bar">
-      <div class="terminal-dot t-red"></div>
-      <div class="terminal-dot t-yellow"></div>
-      <div class="terminal-dot t-green"></div>
-      <span class="terminal-title">bash</span>
-    </div>
-    <div class="terminal-body">
-      <div><span class="t-comment"># 1. Clone the repo</span></div>
-      <div><span class="t-prompt">$ </span><span class="t-cmd">git clone https://github.com/asthamohta/CS224G-SRE.git && cd CS224G-SRE</span></div>
-      <br>
-      <div><span class="t-comment"># 2. Install dependencies</span></div>
-      <div><span class="t-prompt">$ </span><span class="t-cmd">pip install -r requirements.txt</span></div>
-      <br>
-      <div><span class="t-comment"># 3. Configure your API keys</span></div>
-      <div><span class="t-prompt">$ </span><span class="t-cmd">cp .env.example .env</span></div>
-      <div><span class="t-comment"># Edit .env: add GEMINI_API_KEY, SLACK_BOT_TOKEN, GITHUB_TOKEN, ...</span></div>
-      <br>
-      <div><span class="t-comment"># 4. Run the interactive demo</span></div>
-      <div><span class="t-prompt">$ </span><span class="t-cmd">python demo.py</span></div>
-      <br>
-      <div><span class="t-ok">  Service graph built: frontend → cart-service → database</span></div>
-      <div><span class="t-warn">  Alert: cart-service entering ERROR state (15% error rate)</span></div>
-      <div><span class="t-key">  Running RCA for: cart-service</span></div>
-      <div><span class="t-ok">  Root cause: cart-service — DB connection pool exhausted (PR #47)</span></div>
-      <div><span class="t-ok">  Slack notification sent to #incidents</span></div>
-    </div>
-  </div>
-
-  <div class="terminal" style="margin-top: 1.25rem;">
-    <div class="terminal-bar">
-      <div class="terminal-dot t-red"></div>
-      <div class="terminal-dot t-yellow"></div>
-      <div class="terminal-dot t-green"></div>
-      <span class="terminal-title">bash — run as a service</span>
-    </div>
-    <div class="terminal-body">
-      <div><span class="t-comment"># Start the FastAPI server (receives live OTel, GitHub webhooks, Slack commands)</span></div>
-      <div><span class="t-prompt">$ </span><span class="t-cmd">python -m RootScout.main</span></div>
-      <br>
-      <div><span class="t-ok">INFO:     Uvicorn running on http://0.0.0.0:8000</span></div>
-      <div><span class="t-ok">INFO:     Listening: /v1/traces  /v1/metrics  /v1/logs</span></div>
-      <div><span class="t-ok">INFO:     Listening: /webhooks/github  /slack/command</span></div>
-    </div>
+  <p class="section-tag">Demo</p>
+  <h2>See RootScout in action.</h2>
+  <p class="section-sub">Watch how RootScout automatically identifies the root cause of a live incident — from alert to resolution.</p>
+  <div style="position: relative; padding-bottom: 56.25%; height: 0; margin-top: 2.5rem; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 8px 40px rgba(0,0,0,0.4);">
+    <iframe
+      src="https://www.youtube.com/embed/mJxaQR_x-So"
+      title="RootScout Demo"
+      frameborder="0"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      allowfullscreen
+      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+    </iframe>
   </div>
 </div>
 </section>
@@ -1372,10 +1327,10 @@
 <!-- ─── CTA ─── -->
 <section style="max-width: 900px; padding: 5rem 2rem;">
   <div class="cta-banner">
-    <h2>Ready to cut your MTTR?</h2>
-    <p>Join engineering teams using RootScout to automate incident investigation and reduce time-to-resolution.</p>
+    <h2>Ready to resolve incidents faster?</h2>
+    <p>Automate incident investigation, identify root causes, and reduce time to resolution with RootScout.</p>
     <div class="hero-actions">
-      <a href="#quickstart" class="btn-primary">See the Demo</a>
+      <a href="#demo" class="btn-primary">See the Demo</a>
       <a href="https://github.com/asthamohta/CS224G-SRE" class="btn-secondary">View on GitHub</a>
     </div>
   </div>
@@ -1388,7 +1343,7 @@
     <li><a href="#how-it-works">How It Works</a></li>
     <li><a href="#features">Features</a></li>
     <li><a href="#evaluation">Evaluation</a></li>
-    <li><a href="#quickstart">Quickstart</a></li>
+    <li><a href="#demo">Demo</a></li>
     <li><a href="https://github.com/asthamohta/CS224G-SRE">GitHub</a></li>
   </ul>
   <div class="footer-copy">&copy; 2025 RootScout. All rights reserved.</div>
