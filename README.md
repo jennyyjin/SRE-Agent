@@ -143,7 +143,6 @@ RootScout posts incident alerts and RCA reports to Slack via a Slack Bot. The co
 - Go to [api.slack.com/apps](https://api.slack.com/apps) -> **Create New App -> From scratch**
 - Under **OAuth & Permissions**, add bot scopes: `chat:write`, `chat:write.public`
 - **Install to Workspace** and copy the **Bot OAuth Token** (`xoxb-...`)
-- Under **Slash Commands**, create `/rca` pointing to `https://<your-host>/slack/commands`
 
 **2. Add to `.env`**
 
@@ -151,7 +150,7 @@ RootScout posts incident alerts and RCA reports to Slack via a Slack Bot. The co
 SLACK_BOT_TOKEN=xoxb-your-bot-token    
 SLACK_ALERT_CHANNEL=#incidents           # default: #incidents
 SLACK_RCA_CHANNEL=                       # defaults to alert channel
-SLACK_SIGNING_SECRET=                    # for /rca slash command verification
+SLACK_SIGNING_SECRET=                    # for slash command verification
 SLACK_ALERT_COOLDOWN_SECONDS=300         # seconds between repeat alerts per service
 ```
 
@@ -188,14 +187,6 @@ Wrap any `TelemetrySink` with `SlackAlertSink` to auto-alert on ERROR telemetry:
 from RootScout.slack_connector import SlackAlertSink
 
 sink = SlackAlertSink(notifier=notifier, inner_sink=your_existing_sink)
-```
-
-### `/rca` Slash Command
-
-With the server running, type `/rca <service>` in Slack to trigger on-demand RCA. The result is posted back to the configured channel.
-
-```bash
-python -m uvicorn RootScout.main:create_app --factory --port 8000
 ```
 
 ### Tests

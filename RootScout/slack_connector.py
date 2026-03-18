@@ -114,21 +114,21 @@ class SlackNotifier:
     ) -> None:
         """Posts an incident alert to the configured alert channel."""
         channel = self._config.alert_channel
-        text = f":rotating_light: Incident: {service} is {status.upper()}"
+        text = f"Incident: {service} is {status.upper()}"
         blocks = self._build_alert_blocks(service, status, signal, detail)
         self._safe_post(channel, text, blocks, label="alert")
 
     def post_rca_report(self, focus_service: str, report: Dict[str, Any]) -> None:
         """Posts a formatted RCA report to the configured RCA channel."""
         channel = self._config.rca_channel or self._config.alert_channel
-        text = f":mag: RCA Report: {focus_service}"
+        text = f"RCA Report: {focus_service}"
         blocks = self._build_rca_blocks(focus_service, report)
         self._safe_post(channel, text, blocks, label="rca-report")
 
     def _build_alert_blocks(
         self, service: str, status: str, signal: str, detail: str
     ) -> list:
-        emoji = ":red_circle:" if status.lower() == "error" else ":large_yellow_circle:"
+        emoji = ""
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         blocks: list = [
@@ -136,15 +136,15 @@ class SlackNotifier:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f":rotating_light: Incident Alert: {service}",
-                    "emoji": True,
+                    "text": f"Incident Alert: {service}",
+                    "emoji": False,
                 },
             },
             {
                 "type": "section",
                 "fields": [
                     {"type": "mrkdwn", "text": f"*Service:*\n`{service}`"},
-                    {"type": "mrkdwn", "text": f"*Status:*\n{emoji} {status.upper()}"},
+                    {"type": "mrkdwn", "text": f"*Status:*\n{status.upper()}"},
                     {"type": "mrkdwn", "text": f"*Signal:*\n{signal}"},
                     {"type": "mrkdwn", "text": f"*Detected at:*\n{ts}"},
                 ],
@@ -165,10 +165,7 @@ class SlackNotifier:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": (
-                            f"RootScout detected an error signal. "
-                            f"Trigger full RCA with `/rca {service}`"
-                        ),
+                        "text": f"RootScout detected an error signal for `{service}`.",
                     }
                 ],
             }
@@ -184,20 +181,15 @@ class SlackNotifier:
         action = report.get("recommended_action", "")
 
         confidence_pct = f"{confidence * 100:.0f}%"
-        if confidence >= 0.8:
-            conf_emoji = ":large_green_circle:"
-        elif confidence >= 0.5:
-            conf_emoji = ":large_yellow_circle:"
-        else:
-            conf_emoji = ":red_circle:"
+        conf_emoji = ""
 
         blocks: list = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f":mag: RCA Report: {focus_service}",
-                    "emoji": True,
+                    "text": f"RCA Report: {focus_service}",
+                    "emoji": False,
                 },
             },
             {
@@ -206,7 +198,7 @@ class SlackNotifier:
                     {"type": "mrkdwn", "text": f"*Root Cause Service:*\n`{root_cause}`"},
                     {
                         "type": "mrkdwn",
-                        "text": f"*Confidence:*\n{conf_emoji} {confidence_pct}",
+                        "text": f"*Confidence:*\n{confidence_pct}",
                     },
                 ],
             },
@@ -215,7 +207,6 @@ class SlackNotifier:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    # block Kit section text cap: 3000 chars
                     "text": f"*Reasoning:*\n{reasoning[:2900]}",
                 },
             },
@@ -268,15 +259,12 @@ class SlackAlertSink(TelemetrySink):
     ) -> None:
         self._notifier = notifier
         self._inner = inner_sink
-        # service_name -> monotonic timestamp of last alert
         self._last_alert: Dict[str, float] = {}
 
     def emit(self, record: Dict[str, Any]) -> None:
-        # forward to the inner sink first so nothing is lost
         if self._inner:
             self._inner.emit(record)
 
-        # OTLP status_code 2 == ERROR
         is_error = (
             record.get("status_code") == 2
             or str(record.get("status", "")).lower() == "error"
@@ -291,7 +279,6 @@ class SlackAlertSink(TelemetrySink):
         )
         signal = record.get("signal", "trace")
 
-        # cooldown check
         now = time.monotonic()
         cooldown = self._notifier._config.alert_cooldown_seconds
         if now - self._last_alert.get(service, 0.0) < cooldown:
@@ -299,7 +286,6 @@ class SlackAlertSink(TelemetrySink):
 
         self._last_alert[service] = now
 
-        # build a human-readable detail line from the record
         detail = (
             record.get("status_message")
             or (f"span: {record['name']}" if record.get("name") else "")
@@ -332,7 +318,6 @@ class SlackCommandHandler:
         self._graph_builder = graph_builder
         self._rca_agent = rca_agent
 
-    # Signature verification
     def verify_signature(
         self, raw_body: bytes, timestamp: str, signature: str
     ) -> bool:
@@ -373,7 +358,6 @@ class SlackCommandHandler:
         if not self.verify_signature(raw, timestamp, signature):
             raise HTTPException(status_code=401, detail="Invalid Slack request signature")
 
-        # Slack sends application/x-www-form-urlencoded
         params = {k: v[0] for k, v in parse_qs(raw.decode("utf-8")).items()}
         command = params.get("command", "")
         text = params.get("text", "").strip()
@@ -387,8 +371,8 @@ class SlackCommandHandler:
             return {
                 "response_type": "in_channel",
                 "text": (
-                    f":mag: Running RCA for `{service_name}`... "
-                    "results will be posted to Slack shortly."
+                    f"Running RCA for `{service_name}`... "
+                    "Results will be posted to Slack shortly."
                 ),
             }
 

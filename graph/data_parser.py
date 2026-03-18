@@ -172,14 +172,14 @@ def enrich_context_from_github_output_path(
 
     if not os.path.exists(path):
         if verbose:
-            print(f"⚠️ [DataParser] {env_var} set but file missing: {path}")
+            print(f"[DataParser] {env_var} set but file missing: {path}")
         return context_packet
 
     try:
         raw_change_events = safe_load_jsonl(path)
     except Exception as e:
         if verbose:
-            print(f"⚠️ [DataParser] Failed reading JSONL at {path}: {e}")
+            print(f"[DataParser] Failed reading JSONL at {path}: {e}")
         return context_packet
 
     now = datetime.now(timezone.utc)
@@ -220,6 +220,6 @@ def enrich_context_from_github_output_path(
     out["related_nodes"] = out_nodes
 
     if verbose:
-        print(f"✅ [DataParser] Attached GitHub events from {path}")
+        print(f"[DataParser] Attached GitHub events from {path}")
 
     return out

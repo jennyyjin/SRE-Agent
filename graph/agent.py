@@ -34,7 +34,7 @@ class RCAAgent:
 
         prompt = self._construct_prompt(context_packet)
 
-        print("🤖 [Agent] Prompt constructed. Sending to LLM...")
+        print("[Agent] Prompt constructed. Sending to LLM...")
         response_str = self.client.generate_content(prompt)
 
         try:
@@ -60,8 +60,8 @@ class RCAAgent:
         max_patch_chars = 1200
 
         for node in context.get("related_nodes", []):
-            status_emoji = "🔴" if node.get("status") == "error" else "🟢"
-            line = f"- Service: {node.get('service')} {status_emoji}"
+            status_str = "ERROR" if node.get("status") == "error" else "OK"
+            line = f"- Service: {node.get('service')} [{status_str}]"
 
             events = node.get("events") or []
             for e in events[:max_events_per_node]:
